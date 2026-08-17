@@ -102,11 +102,12 @@ Settings -> Secrets and variables -> Actions -> New repository secret
 | `DOUYIN_ACCOUNTS` | ❌ | 多账号配置，配置后会无视单账号配置，详情见下方「👥 多账号配置」 |
 | `YIYAN_INCLUDE_SOURCE` | ❌ | 是否携带一言出处，默认开启；设置为 `false` 时只发送一言正文 |
 | `SPARK_MESSAGE_TEMPLATE` | ❌ | 自定义火花消息模板，见下方「✉️ 自定义消息模板」 |
-| `MAIL_ADDRESS` | ❌ | 任务失败提醒的收件邮箱，同时作为邮件发件人地址 |
+| `MAIL_ADDRESS` | ❌ | 任务通知的收件邮箱，同时作为邮件发件人地址 |
 | `MAIL_USERNAME` | ❌ | QQ 邮箱 SMTP 登录账号，通常与 `MAIL_ADDRESS` 相同 |
 | `MAIL_PASSWORD` | ❌ | QQ 邮箱 SMTP 授权码 |
+| `SEND_SUCCESS_EMAIL` | ❌ | 成功后是否发送邮件；设置为 `true` 时发送，未配置或其他值默认不发送 |
 
-配置 `MAIL_ADDRESS`、`MAIL_USERNAME` 和 `MAIL_PASSWORD` 后，续火失败会向 `MAIL_ADDRESS` 发送提醒邮件，并附带失败图片。
+配置 `MAIL_ADDRESS`、`MAIL_USERNAME` 和 `MAIL_PASSWORD` 后，续火失败会向 `MAIL_ADDRESS` 发送提醒邮件，并附带失败图片。需要在成功后也发送通知时，再添加 `SEND_SUCCESS_EMAIL` 并将值设置为 `true`；未添加该变量时不会发送成功邮件。
 
 #### 3️⃣ 手动运行一次
 

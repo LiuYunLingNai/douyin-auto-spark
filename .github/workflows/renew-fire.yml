@@ -9,6 +9,8 @@ on:
 jobs:
   run:
     runs-on: ubuntu-22.04
+    env:
+      SEND_SUCCESS_EMAIL: ${{ secrets.SEND_SUCCESS_EMAIL }}
     container:
       image: mcr.microsoft.com/playwright:v1.61.0-jammy
     timeout-minutes: 30
@@ -36,6 +38,23 @@ jobs:
           YIYAN_INCLUDE_SOURCE: ${{ secrets.YIYAN_INCLUDE_SOURCE }}
           SPARK_MESSAGE_TEMPLATE: ${{ secrets.SPARK_MESSAGE_TEMPLATE }}
         run: bun src/main.ts
+
+      - name: 发送成功邮件 (Send success email)
+        if: ${{ success() && env.SEND_SUCCESS_EMAIL == 'true' }}
+        uses: dawidd6/action-send-mail@v18
+        with:
+          server_address: smtp.qq.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: 抖音续火任务成功
+          to: ${{ secrets.MAIL_ADDRESS }}
+          from: ${{ secrets.MAIL_ADDRESS }}
+          body: |
+            抖音续火任务执行成功
+            仓库：${{ github.repository }}
+            运行链接：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: 发送失败邮件 (Send failure email)
         if: ${{ failure() }}
