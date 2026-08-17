@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { chromium, type Browser, type Cookie, type Page } from 'playwright'
+import { chromium, type Browser, type Cookie, type Locator, type Page } from 'playwright'
 import { mkdir, readFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
@@ -20,6 +20,13 @@ const DOUYIN_TARGET_NAMES_KEY = 'DOUYIN_TARGET_NAMES'
 const YIYAN_INCLUDE_SOURCE_KEY = 'YIYAN_INCLUDE_SOURCE'
 const SPARK_MESSAGE_TEMPLATE_KEY = 'SPARK_MESSAGE_TEMPLATE'
 const FAILURE_SCREENSHOT_DIRECTORY = 'artifacts'
+
+const CHAT_PAGE_READY_TIMEOUT = 30000
+const CHAT_PAGE_IDLE_TIMEOUT = 10000
+const SEARCH_RESULT_TIMEOUT = 5000
+const SEARCH_RETRY_LIMIT = 3
+const SEARCH_RETRY_INTERVAL = 2000
+const SEARCH_INPUT_RESET_DELAY = 500
 
 const MESSAGE_TEMPLATE_PLACEHOLDER_PATTERN = /\{\{\s*([a-zA-Z]+)\s*\}\}/g
 const MESSAGE_TEMPLATE_PLACEHOLDERS = [
@@ -119,11 +126,9 @@ async function runDouyinAccount(
       waitUntil: 'domcontentloaded',
     })
 
-    await page.waitForTimeout(10000)
-
     const searchInput = page.locator('input.semi-input[placeholder="搜索"]').first()
     const searchVisible = await searchInput
-      .waitFor({ state: 'visible', timeout: 10000 })
+      .waitFor({ state: 'visible', timeout: CHAT_PAGE_READY_TIMEOUT })
       .then(() => true)
       .catch(() => false)
 
@@ -131,7 +136,7 @@ async function runDouyinAccount(
       throw new Error('聊天页搜索框未出现，Cookie 可能已经失效')
     }
 
-    await page.waitForTimeout(1000)
+    await waitForChatListReady(page, account.name)
 
     // 记录未命中的会话，等其余好友都发完再统一报错，避免一个人改名连累当天所有人。
     const missingNames: string[] = []
@@ -141,22 +146,10 @@ async function runDouyinAccount(
 
     for (const targetName of account.targetNames) {
       console.log(`[${account.name}] 开始搜索会话：${targetName}`)
-      await searchInput.fill('')
-      await searchInput.fill(targetName)
 
-      const searchResult = page
-        .locator('.SearchPanelitembox')
-        .filter({
-          has: page.getByText(targetName, { exact: true }),
-        })
-        .first()
+      const searchResult = await searchConversation(page, searchInput, account.name, targetName)
 
-      const searchResultVisible = await searchResult
-        .waitFor({ state: 'visible', timeout: 5000 })
-        .then(() => true)
-        .catch(() => false)
-
-      if (!searchResultVisible) {
+      if (!searchResult) {
         await captureFailureScreenshot(page, `${account.name}-${targetName}-search`)
         console.log(`[${account.name}] 找不到搜索结果，已跳过：${targetName}`)
         missingNames.push(targetName)
@@ -213,6 +206,87 @@ async function runDouyinAccount(
       await context.close()
     }
   }
+}
+
+/**
+ * 等待会话列表真正渲染出数据再开始搜索。
+ *
+ * 搜索框会先于会话列表渲染，若此时就输入关键词，抖音的搜索索引尚未就绪，
+ * 结果面板会一直为空，导致好友被误判成「改名了」。
+ *
+ * @param page 当前账号的聊天页。
+ * @param accountName 账号名称，仅用于日志。
+ * @returns 等待结束后的 Promise，超时也不抛错，交给后续搜索重试兜底。
+ */
+async function waitForChatListReady(page: Page, accountName: string): Promise<void> {
+  const conversationListReady = await page
+    .locator('[class*="conversation"], [class*="Conversation"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: CHAT_PAGE_READY_TIMEOUT })
+    .then(() => true)
+    .catch(() => false)
+
+  if (!conversationListReady) {
+    console.log(`[${accountName}] 会话列表未在预期时间内出现，将依赖搜索重试兜底`)
+  }
+
+  // 会话列表的头像与最近消息还会继续拉取，等网络安静下来搜索命中率更高。
+  await page.waitForLoadState('networkidle', { timeout: CHAT_PAGE_IDLE_TIMEOUT }).catch(() => {})
+}
+
+/**
+ * 带重试地搜索会话，避免把「数据还没加载好」误判成「好友改了昵称」。
+ *
+ * 每一轮都重新清空输入框并等待旧结果消失，防止上一个好友的残留结果被当成命中。
+ *
+ * @param page 当前账号的聊天页。
+ * @param searchInput 聊天页左侧的搜索输入框。
+ * @param accountName 账号名称，仅用于日志。
+ * @param targetName 需要搜索的好友昵称或备注名。
+ * @returns 命中的搜索结果项，全部重试都没命中时返回 undefined。
+ */
+async function searchConversation(
+  page: Page,
+  searchInput: Locator,
+  accountName: string,
+  targetName: string,
+): Promise<Locator | undefined> {
+  const searchResult = page
+    .locator('.SearchPanelitembox')
+    .filter({
+      has: page.getByText(targetName, { exact: true }),
+    })
+    .first()
+
+  for (let attempt = 1; attempt <= SEARCH_RETRY_LIMIT; attempt += 1) {
+    await searchInput.fill('')
+    // 等旧的结果面板收起，否则会读到上一个好友残留的列表项。
+    await page
+      .locator('.SearchPanelitembox')
+      .first()
+      .waitFor({ state: 'hidden', timeout: SEARCH_RESULT_TIMEOUT })
+      .catch(() => {})
+    await page.waitForTimeout(SEARCH_INPUT_RESET_DELAY)
+    await searchInput.fill(targetName)
+
+    const searchResultVisible = await searchResult
+      .waitFor({ state: 'visible', timeout: SEARCH_RESULT_TIMEOUT })
+      .then(() => true)
+      .catch(() => false)
+
+    if (searchResultVisible) {
+      return searchResult
+    }
+
+    if (attempt < SEARCH_RETRY_LIMIT) {
+      console.log(
+        `[${accountName}] 第 ${attempt} 次搜索未命中，${SEARCH_RETRY_INTERVAL} 毫秒后重试：${targetName}`,
+      )
+      await page.waitForTimeout(SEARCH_RETRY_INTERVAL)
+    }
+  }
+
+  return undefined
 }
 
 /**
