@@ -102,12 +102,16 @@ Settings -> Secrets and variables -> Actions -> New repository secret
 | `DOUYIN_ACCOUNTS` | ❌ | 多账号配置，配置后会无视单账号配置，详情见下方「👥 多账号配置」 |
 | `YIYAN_INCLUDE_SOURCE` | ❌ | 是否携带一言出处，默认开启；设置为 `false` 时只发送一言正文 |
 | `SPARK_MESSAGE_TEMPLATE` | ❌ | 自定义火花消息模板，见下方「✉️ 自定义消息模板」 |
-| `MAIL_ADDRESS` | ❌ | 任务通知的收件邮箱，同时作为邮件发件人地址 |
-| `MAIL_USERNAME` | ❌ | QQ 邮箱 SMTP 登录账号，通常与 `MAIL_ADDRESS` 相同 |
-| `MAIL_PASSWORD` | ❌ | QQ 邮箱 SMTP 授权码 |
+| `MAIL_ADDRESS` | ❌ | SMTP 发件地址 |
+| `MAIL_TO` | ❌ | 任务通知的收件邮箱；不配置时默认发到 `MAIL_ADDRESS` |
+| `MAIL_USERNAME` | ❌ | SMTP 登录账号，通常与 `MAIL_ADDRESS` 相同 |
+| `MAIL_PASSWORD` | ❌ | SMTP 授权码或密码；QQ 邮箱请填写授权码 |
+| `MAIL_HOST` | ❌ | SMTP 服务器地址，默认 `smtp.qq.com` |
+| `MAIL_PORT` | ❌ | SMTP 端口，默认 `465` |
+| `MAIL_SECURE` | ❌ | 是否使用 SSL，默认 `true` |
 | `SEND_SUCCESS_EMAIL` | ❌ | 成功后是否发送邮件；设置为 `true` 时发送，未配置或其他值默认不发送 |
 
-配置 `MAIL_ADDRESS`、`MAIL_USERNAME` 和 `MAIL_PASSWORD` 后，续火失败会向 `MAIL_ADDRESS` 发送提醒邮件，并附带失败图片。需要在成功后也发送通知时，再添加 `SEND_SUCCESS_EMAIL` 并将值设置为 `true`；未添加该变量时不会发送成功邮件。
+配置 `MAIL_ADDRESS`、`MAIL_USERNAME` 和 `MAIL_PASSWORD` 后，脚本本体会通过 SMTP 发送邮件；使用 `MAIL_TO` 指定收件地址，不配置时默认发到 `MAIL_ADDRESS`。续火失败会附带失败图片。需要在成功后也发送通知时，再添加 `SEND_SUCCESS_EMAIL` 并将值设置为 `true`；未添加该变量时不会发送成功邮件。邮件配置同时适用于 GitHub Actions 和本地运行。
 
 #### 3️⃣ 手动运行一次
 
@@ -153,6 +157,14 @@ cp .env.example .env
 | `PLAYWRIGHT_BROWSER_PATH` | ❌ | - | 本机 Chrome / Chromium / Edge 可执行文件路径，不填则使用 Playwright 默认浏览器 |
 | `PLAYWRIGHT_HEADLESS` | ❌ | `true` | 是否使用无头模式 |
 | `AUTO_CLOSE` | ❌ | `true` | 发送完成后是否自动关闭浏览器 |
+| `MAIL_ADDRESS` | ❌ | - | SMTP 发件地址 |
+| `MAIL_TO` | ❌ | `MAIL_ADDRESS` | 任务通知的收件邮箱 |
+| `MAIL_USERNAME` | ❌ | - | SMTP 登录账号，通常与 `MAIL_ADDRESS` 相同 |
+| `MAIL_PASSWORD` | ❌ | - | SMTP 授权码或密码；QQ 邮箱请填写授权码 |
+| `MAIL_HOST` | ❌ | `smtp.qq.com` | SMTP 服务器地址 |
+| `MAIL_PORT` | ❌ | `465` | SMTP 端口 |
+| `MAIL_SECURE` | ❌ | `true` | 是否使用 SSL |
+| `SEND_SUCCESS_EMAIL` | ❌ | `false` | 成功后是否发送通知邮件 |
 
 #### 3️⃣ 启动项目
 

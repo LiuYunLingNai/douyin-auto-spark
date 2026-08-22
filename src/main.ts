@@ -7,6 +7,7 @@ import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
+import nodemailer from 'nodemailer'
 import type { DouyinCookie, SameSite } from './types/douyin-cookie'
 import type { Yiyan } from './types/yiyan'
 
@@ -19,6 +20,14 @@ const DOUYIN_COOKIE_KEY = 'DOUYIN_COOKIE'
 const DOUYIN_TARGET_NAMES_KEY = 'DOUYIN_TARGET_NAMES'
 const YIYAN_INCLUDE_SOURCE_KEY = 'YIYAN_INCLUDE_SOURCE'
 const SPARK_MESSAGE_TEMPLATE_KEY = 'SPARK_MESSAGE_TEMPLATE'
+const MAIL_ADDRESS_KEY = 'MAIL_ADDRESS'
+const MAIL_TO_KEY = 'MAIL_TO'
+const MAIL_USERNAME_KEY = 'MAIL_USERNAME'
+const MAIL_PASSWORD_KEY = 'MAIL_PASSWORD'
+const MAIL_HOST_KEY = 'MAIL_HOST'
+const MAIL_PORT_KEY = 'MAIL_PORT'
+const MAIL_SECURE_KEY = 'MAIL_SECURE'
+const SEND_SUCCESS_EMAIL_KEY = 'SEND_SUCCESS_EMAIL'
 const FAILURE_SCREENSHOT_DIRECTORY = 'artifacts'
 
 const CHAT_PAGE_READY_TIMEOUT = 30000
@@ -48,6 +57,17 @@ interface DouyinAccount {
   messageTemplate: string | undefined
 }
 
+interface EmailConfig {
+  address: string
+  recipient: string
+  username: string
+  password: string
+  host: string
+  port: number
+  secure: boolean
+  sendSuccess: boolean
+}
+
 /**
  * 启动本机 Chrome 浏览器并携带 Cookie 访问抖音聊天页。
  */
@@ -57,18 +77,30 @@ async function main(): Promise<void> {
   const autoClose = resolveAutoClose()
   const includeYiyanSource = resolveYiyanIncludeSource()
   const globalMessageTemplate = resolveSparkMessageTemplate()
-  const accounts = resolveDouyinAccounts(globalMessageTemplate)
-  const yiyans = await resolveYiyans()
-  const browser = await chromium.launch({
-    headless,
-    ...(browserPath ? { executablePath: browserPath } : {}),
-  })
+  const emailConfig = resolveEmailConfig()
+  let browser: Browser | undefined
   const failures: Error[] = []
+  const failureScreenshotPaths = new Set<string>()
+  let taskError: Error | undefined
 
   try {
+    const accounts = resolveDouyinAccounts(globalMessageTemplate)
+    const yiyans = await resolveYiyans()
+    browser = await chromium.launch({
+      headless,
+      ...(browserPath ? { executablePath: browserPath } : {}),
+    })
+
     for (const account of accounts) {
       try {
-        await runDouyinAccount(browser, account, yiyans, includeYiyanSource, autoClose)
+        await runDouyinAccount(
+          browser,
+          account,
+          yiyans,
+          includeYiyanSource,
+          autoClose,
+          failureScreenshotPaths,
+        )
       } catch (error) {
         const accountError = toError(error)
         failures.push(
@@ -91,10 +123,161 @@ async function main(): Promise<void> {
     if (failures.length > 0) {
       throw new AggregateError(failures, `${failures.length} 个抖音账号执行失败`)
     }
+  } catch (error) {
+    taskError = toError(error)
+    throw error
   } finally {
     // 无论任务是否失败，都关闭浏览器以释放 Playwright 持有的进程句柄。
-    await browser.close()
+    await browser?.close()
+
+    if (emailConfig && (taskError || emailConfig.sendSuccess)) {
+      await sendTaskEmail(emailConfig, taskError, failureScreenshotPaths)
+    }
   }
+}
+
+/**
+ * 读取 SMTP 配置。没有配置任何邮件变量时保持邮件功能关闭，不影响原有运行。
+ */
+function resolveEmailConfig(): EmailConfig | undefined {
+  const address = process.env[MAIL_ADDRESS_KEY]?.trim()
+  const recipient = process.env[MAIL_TO_KEY]?.trim() || address
+  const username = process.env[MAIL_USERNAME_KEY]?.trim()
+  const password = process.env[MAIL_PASSWORD_KEY]?.trim()
+  const hasMailConfig = Boolean(
+    address || username || password || process.env[SEND_SUCCESS_EMAIL_KEY]?.trim(),
+  )
+
+  if (!hasMailConfig) {
+    return undefined
+  }
+
+  if (!address || !recipient || !username || !password) {
+    throw new Error(
+      `邮件通知需要同时配置 ${MAIL_ADDRESS_KEY}、${MAIL_USERNAME_KEY} 和 ${MAIL_PASSWORD_KEY}`,
+    )
+  }
+
+  return {
+    address,
+    recipient,
+    username,
+    password,
+    host: process.env[MAIL_HOST_KEY]?.trim() || 'smtp.qq.com',
+    port: resolveMailPort(),
+    secure: resolveMailSecure(),
+    sendSuccess: resolveSendSuccessEmail(),
+  }
+}
+
+function resolveMailPort(): number {
+  const portText = process.env[MAIL_PORT_KEY]?.trim()
+
+  if (!portText) {
+    return 465
+  }
+
+  const port = Number(portText)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`${MAIL_PORT_KEY} 必须是 1-65535 之间的整数`)
+  }
+
+  return port
+}
+
+function resolveMailSecure(): boolean {
+  const secure = process.env[MAIL_SECURE_KEY]?.trim().toLowerCase()
+
+  if (!secure) {
+    return true
+  }
+
+  if (secure === 'true') {
+    return true
+  }
+
+  if (secure === 'false') {
+    return false
+  }
+
+  throw new Error(`${MAIL_SECURE_KEY} 只能配置为 true 或 false`)
+}
+
+function resolveSendSuccessEmail(): boolean {
+  const sendSuccess = process.env[SEND_SUCCESS_EMAIL_KEY]?.trim().toLowerCase()
+
+  if (!sendSuccess || sendSuccess === 'false') {
+    return false
+  }
+
+  if (sendSuccess === 'true') {
+    return true
+  }
+
+  throw new Error(`${SEND_SUCCESS_EMAIL_KEY} 只能配置为 true 或 false`)
+}
+
+async function sendTaskEmail(
+  config: EmailConfig,
+  taskError: Error | undefined,
+  failureScreenshotPaths: Set<string>,
+): Promise<void> {
+  try {
+    const attachments = taskError ? [...failureScreenshotPaths].map((path) => ({ path })) : []
+    const isFailure = taskError !== undefined
+    const transporter = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      auth: {
+        user: config.username,
+        pass: config.password,
+      },
+    })
+    const runLink = resolveGitHubRunLink()
+    const errorDetails = isFailure ? resolveTaskErrorDetails(taskError) : []
+    const body = isFailure
+      ? [
+          '抖音续火任务执行失败',
+          `错误：${taskError.message}`,
+          ...(errorDetails.length > 0 ? ['错误详情：', ...errorDetails] : []),
+          runLink ? `运行链接：${runLink}` : '运行环境：本地',
+          '如确认配置无误后仍然失败，请在上游仓库发送 issue：',
+          'https://github.com/bling-yshs/douyin-auto-spark/issues',
+        ].join('\n')
+      : ['抖音续火任务执行成功', runLink ? `运行链接：${runLink}` : '运行环境：本地'].join('\n')
+
+    await transporter.sendMail({
+      from: config.address,
+      to: config.recipient,
+      subject: isFailure ? '抖音续火任务失败' : '抖音续火任务成功',
+      text: body,
+      attachments,
+    })
+    console.log(`${isFailure ? '失败' : '成功'}邮件已发送：${config.address}`)
+  } catch (error) {
+    console.error('发送邮件失败:', toError(error))
+  }
+}
+
+function resolveTaskErrorDetails(error: Error): string[] {
+  if (error instanceof AggregateError) {
+    return error.errors.map((item) => `- ${toError(item).message}`)
+  }
+
+  return [`- ${error.message}`]
+}
+
+function resolveGitHubRunLink(): string | undefined {
+  const serverUrl = process.env.GITHUB_SERVER_URL?.trim()
+  const repository = process.env.GITHUB_REPOSITORY?.trim()
+  const runId = process.env.GITHUB_RUN_ID?.trim()
+
+  if (!serverUrl || !repository || !runId) {
+    return undefined
+  }
+
+  return `${serverUrl}/${repository}/actions/runs/${runId}`
 }
 
 /**
@@ -113,9 +296,11 @@ async function runDouyinAccount(
   yiyans: Yiyan[],
   includeYiyanSource: boolean,
   autoClose: boolean,
+  failureScreenshotPaths: Set<string>,
 ): Promise<void> {
   const context = await browser.newContext()
   let page: Page | undefined
+  let hasCapturedFailureScreenshot = false
 
   try {
     console.log(`开始执行账号：${account.name}`)
@@ -150,7 +335,16 @@ async function runDouyinAccount(
       const searchResult = await searchConversation(page, searchInput, account.name, targetName)
 
       if (!searchResult) {
-        await captureFailureScreenshot(page, `${account.name}-${targetName}-search`)
+        if (!hasCapturedFailureScreenshot) {
+          const screenshotPath = await captureFailureScreenshot(
+            page,
+            `${account.name}-${targetName}-search`,
+          )
+          if (screenshotPath) {
+            failureScreenshotPaths.add(screenshotPath)
+            hasCapturedFailureScreenshot = true
+          }
+        }
         console.log(`[${account.name}] 找不到搜索结果，已跳过：${targetName}`)
         missingNames.push(targetName)
         continue
@@ -199,7 +393,12 @@ async function runDouyinAccount(
 
     console.log(`账号执行完成：${account.name}`)
   } catch (error) {
-    await captureFailureScreenshot(page, account.name)
+    if (!hasCapturedFailureScreenshot) {
+      const screenshotPath = await captureFailureScreenshot(page, account.name)
+      if (screenshotPath) {
+        failureScreenshotPaths.add(screenshotPath)
+      }
+    }
     throw error
   } finally {
     if (autoClose) {
@@ -295,9 +494,9 @@ async function searchConversation(
 async function captureFailureScreenshot(
   page: Page | undefined,
   accountName: string,
-): Promise<void> {
+): Promise<string | undefined> {
   if (!page || page.isClosed()) {
-    return
+    return undefined
   }
 
   try {
@@ -308,8 +507,10 @@ async function captureFailureScreenshot(
       fullPage: true,
     })
     console.log(`已保存失败截图：${screenshotPath}`)
+    return screenshotPath
   } catch (error) {
     console.error('保存失败截图失败:', error)
+    return undefined
   }
 }
 

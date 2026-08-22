@@ -9,8 +9,6 @@ on:
 jobs:
   run:
     runs-on: ubuntu-22.04
-    env:
-      SEND_SUCCESS_EMAIL: ${{ secrets.SEND_SUCCESS_EMAIL }}
     container:
       image: mcr.microsoft.com/playwright:v1.61.0-jammy
     timeout-minutes: 30
@@ -37,44 +35,15 @@ jobs:
           DOUYIN_TARGET_NAMES: ${{ secrets.DOUYIN_TARGET_NAMES }}
           YIYAN_INCLUDE_SOURCE: ${{ secrets.YIYAN_INCLUDE_SOURCE }}
           SPARK_MESSAGE_TEMPLATE: ${{ secrets.SPARK_MESSAGE_TEMPLATE }}
+          MAIL_ADDRESS: ${{ secrets.MAIL_ADDRESS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_SECURE: ${{ secrets.MAIL_SECURE }}
+          SEND_SUCCESS_EMAIL: ${{ secrets.SEND_SUCCESS_EMAIL }}
         run: bun src/main.ts
-
-      - name: 发送成功邮件 (Send success email)
-        if: ${{ success() && env.SEND_SUCCESS_EMAIL == 'true' }}
-        uses: dawidd6/action-send-mail@v18
-        with:
-          server_address: smtp.qq.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: 抖音续火任务成功
-          to: ${{ secrets.MAIL_ADDRESS }}
-          from: ${{ secrets.MAIL_ADDRESS }}
-          body: |
-            抖音续火任务执行成功
-            仓库：${{ github.repository }}
-            运行链接：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-      - name: 发送失败邮件 (Send failure email)
-        if: ${{ failure() }}
-        uses: dawidd6/action-send-mail@v18
-        with:
-          server_address: smtp.qq.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: 抖音续火任务失败
-          to: ${{ secrets.MAIL_ADDRESS }}
-          from: ${{ secrets.MAIL_ADDRESS }}
-          attachments: artifacts/*.png
-          body: |
-            抖音续火任务执行失败
-            仓库：${{ github.repository }}
-            运行链接：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            如确认配置无误后仍然失败，请在上游仓库发送 issue：
-            https://github.com/bling-yshs/douyin-auto-spark/issues
 
 #      - name: Setup tmate session
 #        uses: mxschmitt/action-tmate@v3

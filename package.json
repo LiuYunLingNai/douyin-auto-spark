@@ -14,10 +14,12 @@
   "dependencies": {
     "dayjs": "1.11.21",
     "dotenv": "17.4.2",
+    "nodemailer": "7.0.6",
     "playwright": "1.61.0"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "@types/nodemailer": "^7.0.1",
     "husky": "^9.1.7",
     "oxfmt": "0.59.0",
     "oxlint": "1.74.0",
