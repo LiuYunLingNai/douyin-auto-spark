@@ -37,17 +37,31 @@ jobs:
           SPARK_MESSAGE_TEMPLATE: ${{ secrets.SPARK_MESSAGE_TEMPLATE }}
         run: bun src/main.ts
 
+      - name: 检查邮件配置 (Check mail configuration)
+        id: mail-config
+        if: ${{ always() }}
+        env:
+          MAIL_ADDRESS: ${{ secrets.MAIL_ADDRESS }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+        run: |
+          if [ -n "$MAIL_ADDRESS" ] && [ -n "$MAIL_USERNAME" ] && [ -n "$MAIL_PASSWORD" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 发送失败邮件 (Send failure email)
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.mail-config.outputs.enabled == 'true' }}
         uses: dawidd6/action-send-mail@v18
         with:
-          server_address: smtp.qq.com
-          server_port: 465
-          secure: true
+          server_address: ${{ secrets.MAIL_HOST || 'smtp.qq.com' }}
+          server_port: ${{ secrets.MAIL_PORT || '465' }}
+          secure: ${{ secrets.MAIL_SECURE || 'true' }}
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: 抖音续火任务失败
-          to: ${{ secrets.MAIL_ADDRESS }}
+          to: ${{ secrets.MAIL_TO || secrets.MAIL_ADDRESS }}
           from: ${{ secrets.MAIL_ADDRESS }}
           attachments: artifacts/*.png
           body: |
