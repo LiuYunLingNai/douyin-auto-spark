@@ -102,11 +102,15 @@ Settings -> Secrets and variables -> Actions -> New repository secret
 | `DOUYIN_ACCOUNTS` | ❌ | 多账号配置，配置后会无视单账号配置，详情见下方「👥 多账号配置」 |
 | `YIYAN_INCLUDE_SOURCE` | ❌ | 是否携带一言出处，默认开启；设置为 `false` 时只发送一言正文 |
 | `SPARK_MESSAGE_TEMPLATE` | ❌ | 自定义火花消息模板，见下方「✉️ 自定义消息模板」 |
-| `MAIL_ADDRESS` | ❌ | 任务失败提醒的收件邮箱，同时作为邮件发件人地址 |
-| `MAIL_USERNAME` | ❌ | QQ 邮箱 SMTP 登录账号，通常与 `MAIL_ADDRESS` 相同 |
-| `MAIL_PASSWORD` | ❌ | QQ 邮箱 SMTP 授权码 |
+| `MAIL_ADDRESS` | ❌ | SMTP 发件邮箱地址 |
+| `MAIL_TO` | ❌ | 任务失败提醒的收件邮箱，不配置时使用 `MAIL_ADDRESS` |
+| `MAIL_USERNAME` | ❌ | SMTP 登录账号，通常与 `MAIL_ADDRESS` 相同 |
+| `MAIL_PASSWORD` | ❌ | SMTP 授权码或密码；QQ 邮箱请填写授权码 |
+| `MAIL_HOST` | ❌ | SMTP 服务器地址，默认 `smtp.qq.com` |
+| `MAIL_PORT` | ❌ | SMTP 服务器端口，默认 `465` |
+| `MAIL_SECURE` | ❌ | 是否使用 SSL，默认 `true` |
 
-配置 `MAIL_ADDRESS`、`MAIL_USERNAME` 和 `MAIL_PASSWORD` 后，续火失败会向 `MAIL_ADDRESS` 发送提醒邮件，并附带失败图片。
+配置 `MAIL_ADDRESS`、`MAIL_USERNAME` 和 `MAIL_PASSWORD` 后，续火失败会发送提醒邮件，并附带失败图片。可通过 `MAIL_TO` 指定收件地址；未配置时邮件发送到 `MAIL_ADDRESS`。使用非 QQ 邮箱时，请同时按服务商要求配置 `MAIL_HOST`、`MAIL_PORT` 和 `MAIL_SECURE`。
 
 #### 3️⃣ 手动运行一次
 
