@@ -92,6 +92,7 @@ function registerMountedRoutes() {
   app.post(`${webState.prefix}/api/scan/start/:token`, (req, res) => handleScanStart(req.params.token, res))
   app.post(`${webState.prefix}/api/scan/refresh/:token`, (req, res) => handleScanRefresh(req.params.token, res))
   app.post(`${webState.prefix}/api/scan/sms/:token`, (req, res) => handleScanSms(req.params.token, req.body, res))
+  app.get(`${webState.prefix}/api/scan/screenshot/:token`, (req, res) => handleScanScreenshot(req.params.token, res))
   app.get(`${webState.prefix}/api/scan/status/:token`, (req, res) => handleScanStatus(req.params.token, res))
 }
 
@@ -118,12 +119,14 @@ async function handleStandaloneRequest(req, res) {
   const scanStart = new RegExp(`^${webState.prefix}/api/scan/start/([a-f0-9]{64})$`).exec(url.pathname)
   const scanRefresh = new RegExp(`^${webState.prefix}/api/scan/refresh/([a-f0-9]{64})$`).exec(url.pathname)
   const scanSms = new RegExp(`^${webState.prefix}/api/scan/sms/([a-f0-9]{64})$`).exec(url.pathname)
+  const scanScreenshot = new RegExp(`^${webState.prefix}/api/scan/screenshot/([a-f0-9]{64})$`).exec(url.pathname)
   const scanStatus = new RegExp(`^${webState.prefix}/api/scan/status/([a-f0-9]{64})$`).exec(url.pathname)
   if (req.method === 'GET' && page) return handleSetupPage(page[1], res)
   if (req.method === 'POST' && api) return handleSetupSubmit(api[1], await readJsonBody(req), res)
   if (req.method === 'POST' && scanStart) return handleScanStart(scanStart[1], res)
   if (req.method === 'POST' && scanRefresh) return handleScanRefresh(scanRefresh[1], res)
   if (req.method === 'POST' && scanSms) return handleScanSms(scanSms[1], await readJsonBody(req), res)
+  if (req.method === 'GET' && scanScreenshot) return handleScanScreenshot(scanScreenshot[1], res)
   if (req.method === 'GET' && scanStatus) return handleScanStatus(scanStatus[1], res)
   sendHtml(res, 404, renderMessagePage('页面不存在。'))
 }
@@ -195,6 +198,18 @@ async function handleScanSms(token, body, res) {
   }
 }
 
+function handleScanScreenshot(token, res) {
+  if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
+  const scan = scanSessions.get(token)
+  if (!scan?.screenshot) return sendJson(res, 404, { ok: false, message: '截图尚未生成。' })
+  res.writeHead(200, {
+    'Content-Type': 'image/png',
+    'Cache-Control': 'no-store',
+    'Content-Length': scan.screenshot.length,
+  })
+  res.end(scan.screenshot)
+}
+
 async function handleScanStatus(token, res) {
   if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
   try {
@@ -226,7 +241,7 @@ async function startScanSession(token, { force = false } = {}) {
     await browser?.close().catch(() => {})
     throw error
   }
-  const scan = { token, browser, context, page, status: 'waiting', qr: '', cookies: undefined, error: undefined, cookieFingerprint: '', screenshotLogged: false, smsRequested: false, smsCodeSubmitted: false, startedAt: Date.now() }
+  const scan = { token, browser, context, page, status: 'waiting', qr: '', cookies: undefined, error: undefined, cookieFingerprint: '', screenshotLogged: false, screenshot: undefined, smsRequested: false, smsCodeSubmitted: false, startedAt: Date.now() }
   scanSessions.set(token, scan)
   try {
     await page.goto('https://www.douyin.com/chat', { waitUntil: 'domcontentloaded', timeout: 30000 })
@@ -329,14 +344,21 @@ async function getScanStatus(token) {
 async function maybeRequestSmsVerification(scan) {
   if (scan.smsRequested || !scan.page || scan.page.isClosed()) return
   try {
-    const identity = scan.page.getByText('身份验证', { exact: false })
-    if (!await identity.isVisible().catch(() => false)) return
-    const receive = scan.page.getByText('接收短信验证码', { exact: true })
-    if (!await receive.isVisible().catch(() => false)) return
-    await receive.click()
-    scan.smsRequested = true
-    logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
-    await saveScanScreenshot(scan)
+    // 身份验证组件可能位于 iframe，逐个 frame 查找可见选项。
+    for (const frame of scan.page.frames()) {
+      const receive = frame.getByText(/^\s*接收短信验证码\s*$/).last()
+      if (!await receive.isVisible().catch(() => false)) continue
+      const row = receive.locator('xpath=..')
+      if (await row.isVisible().catch(() => false)) {
+        await row.click({ force: true, timeout: 5000 })
+      } else {
+        await receive.click({ force: true, timeout: 5000 })
+      }
+      scan.smsRequested = true
+      logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
+      await saveScanScreenshot(scan)
+      return
+    }
   } catch (error) {
     logger.warn(`[抖音续火] 自动点击接收短信验证码失败：${error.message}`)
   }
@@ -344,24 +366,48 @@ async function maybeRequestSmsVerification(scan) {
 
 async function submitScanSmsCode(scan, code) {
   if (!scan.page || scan.page.isClosed()) throw new Error('扫码浏览器已关闭，请重新获取二维码。')
-  const inputs = await scan.page.locator('input').all()
+  const frames = scan.page.frames()
   let codeInput
-  for (const input of inputs) {
-    if (!await input.isVisible().catch(() => false)) continue
-    const placeholder = await input.getAttribute('placeholder').catch(() => '')
-    const type = await input.getAttribute('type').catch(() => '')
-    if (/验证码|校验码|短信/.test(`${placeholder || ''}${type || ''}`) || type === 'text' || type === 'tel') {
-      codeInput = input
-      break
-    }
+  let inputFrame
+  for (const frame of frames) {
+    const candidates = frame.locator('#button-input:visible')
+    const count = await candidates.count()
+    if (!count) continue
+    codeInput = candidates.nth(count - 1)
+    inputFrame = frame
+    break
   }
-  if (!codeInput) throw new Error('未找到短信验证码输入框，请点击刷新二维码后重试。')
-  await codeInput.fill(code)
-  const submit = scan.page.getByRole('button', { name: /登录|确认|验证|提交/ }).first()
-  if (!await submit.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
-  await submit.click()
+  if (!codeInput) {
+    throw new Error('未找到短信验证码输入框，请确认抖音页面已显示验证码输入框。')
+  }
+  await codeInput.scrollIntoViewIfNeeded().catch(() => {})
+  await codeInput.click({ force: true, timeout: 5000 })
+  await codeInput.fill(String(code))
+  let actualValue = await codeInput.evaluate((element) => element.value || '').catch(() => '')
+  if (actualValue !== String(code)) {
+    await codeInput.click({ force: true, timeout: 5000 })
+    await codeInput.fill('')
+    await codeInput.pressSequentially(String(code), { delay: 100 })
+    actualValue = await codeInput.evaluate((element) => element.value || '').catch(() => '')
+  }
+  if (actualValue !== String(code)) throw new Error('验证码未能填入抖音页面，请重新提交。')
+  await saveScanScreenshot(scan)
+  logger.info('[抖音续火] 已将短信验证码填入抖音页面')
+  await clickSmsSubmit(inputFrame)
   scan.smsCodeSubmitted = true
   await saveScanScreenshot(scan)
+}
+
+async function clickSmsSubmit(frame) {
+  if (!frame) throw new Error('未找到验证码提交按钮。')
+  const submit = frame.getByRole('button', { name: /验证|登录|确认|提交/ }).first()
+  if (await submit.isVisible().catch(() => false)) {
+    await submit.click({ force: true })
+    return
+  }
+  const text = frame.getByText(/^\s*验证\s*$/).last()
+  if (!await text.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
+  await text.click({ force: true, timeout: 5000 })
 }
 
 function hasDouyinSessionCookie(cookies) {
@@ -382,11 +428,13 @@ async function saveScanScreenshot(scan) {
     const directory = path.join(getPluginRoot(), 'artifacts', 'scan')
     const file = path.join(directory, `scan-${scan.token}.png`)
     await fs.mkdir(directory, { recursive: true })
-    await scan.page.screenshot({ path: file, fullPage: true })
+    const screenshot = await scan.page.screenshot({ path: file, fullPage: true })
+    scan.screenshot = screenshot
+    scan.screenshotVersion = (scan.screenshotVersion || 0) + 1
     scan.lastScreenshotAt = Date.now()
     if (!scan.screenshotLogged) {
       scan.screenshotLogged = true
-      logger.info(`[抖音续火] 扫码页面截图已保存：${file}`)
+      logger.info('[抖音续火] 扫码页面截图已更新')
     }
   } catch (error) {
     logger.warn(`[抖音续火] 保存扫码页面截图失败：${error.message}`)
@@ -565,9 +613,9 @@ function renderSetupPage(token, initial, editing) {
     .scan { display: grid; gap: 8px; padding: 12px; border: 1px solid #d7dee8; border-radius: 5px; background: #f8fafc; }
     .scan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .scan button { justify-self: start; }
+    .qr { display: none; width: min(360px, 100%); max-height: 360px; object-fit: contain; border: 1px solid #d7dee8; background: #fff; }
     .sms { display: none; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; }
     .sms input { min-width: 0; }
-    .qr { display: none; width: min(360px, 100%); max-height: 360px; object-fit: contain; border: 1px solid #d7dee8; background: #fff; }
     #status { margin: 0; min-height: 20px; color: #b42318; font-size: 14px; }
     #status.ok { color: #087443; }
   </style>
