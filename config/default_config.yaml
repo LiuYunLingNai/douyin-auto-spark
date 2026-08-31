@@ -1,0 +1,29 @@
+# 复制为 config.yaml 后填写账号 Cookie 和目标会话。
+schedule:
+  enabled: true
+  cron: "0 10 0 * * *"
+
+browser:
+  executablePath: ""
+  headless: true
+
+message:
+  includeSource: true
+  template: ""
+
+smtp:
+  enabled: false
+  host: smtp.qq.com
+  port: 465
+  secure: true
+  username: ""
+  password: ""
+  from: ""
+
+web:
+  # true 时挂载到 TRSS 的 /douyin-auto-spark；false 时使用独立网页服务
+  mountToTrss: true
+  standalonePort: 3065
+  # 手机访问时填可从手机访问到的地址，例如 http://192.168.1.10:2536
+  baseUrl: ""
+  linkExpiresMinutes: 10

@@ -1,299 +1,65 @@
-<h1 align="center">🔥 Douyin Auto Spark</h1>
+# 抖音续火 Yunzai 插件
 
-<p align="center">
-  <strong>抖音聊天续火脚本 · Playwright 自动化 · GitHub Actions 定时运行</strong>
-</p>
+TRSS-Yunzai 插件。每位 QQ 用户可私聊机器人添加自己的多个抖音账号；账号 Cookie 保存在本地 SQLite 数据库 `data/data.db`，不会显示在 Guoba 面板或群聊消息中。插件使用 Playwright 打开抖音聊天页并向指定会话发送随机一言或自定义消息。
 
-<div align="center">
-  <img src="assets/readme/banner.png" alt="Douyin Auto Spark Logo">
-</div>
-<br>
+## 安装
 
-<div align="center">
-  <a href="https://github.com/bling-yshs/douyin-auto-spark/stargazers"><img src="https://img.shields.io/github/stars/bling-yshs/douyin-auto-spark?logo=github&color=yellow" alt="Stars"></a>
-  <a href="https://github.com/bling-yshs/douyin-auto-spark/actions/workflows/renew-fire.yml"><img src="https://img.shields.io/github/actions/workflow/status/bling-yshs/douyin-auto-spark/renew-fire.yml?branch=main&label=%E7%BB%AD%E7%81%AB&logo=githubactions" alt="Spark Status"></a>
-  <a href="https://github.com/bling-yshs/douyin-auto-spark/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-orange" alt="License"></a>
-</div>
-<br>
-
-## ✨ 项目简介
-
-本项目是一个基于 **Playwright + TypeScript** 的抖音自动续火脚本。它会携带你配置的抖音 Cookie 打开聊天页，按配置的会话名称依次定位聊天对象，并从 `assets/yiyan.json` 中随机挑选一言发送出去。支持 Github Actions 运行和本地运行两种方式。
-
-## 🚀 功能特性
-
-- 🎭 **Cookie 登录** - 通过 `DOUYIN_COOKIE` 注入抖音登录态，无需在脚本中输入账号密码
-- 🎯 **多会话发送** - 通过 `DOUYIN_TARGET_NAMES` 配置多个聊天对象
-- 👥 **多账号续火** - 可通过 `DOUYIN_ACCOUNTS` 为多个账号分别配置 Cookie、聊天对象和消息模板
-- 💬 **随机一言** - 每次从 `assets/yiyan.json` 随机挑选一条 `hitokoto`，默认以 `——「出处」` 的格式附上来源
-- 🤖 **定时续火** - 通过 Github Action 每天 0 点自动续火（但是 Github 定时任务要排队，可能会延迟几个小时）
-
-## 🧰 准备工作
-
-在配置 GitHub Actions 或本地 `.env` 之前，需要先准备抖音 Cookie 和要发送消息的会话名称。
-
-### 1️⃣ 获取抖音 Cookie
-
-1. 使用 Chrome/Edge 打开 [Cookie-Editor 插件页面](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm)，安装 Cookie-Editor。 [（Edge点我）](https://microsoftedge.microsoft.com/addons/detail/cookieeditor/neaplmfkghagebokkhpjpoebhdledlfi)
-
-2. 打开 [抖音聊天页](https://www.douyin.com/chat)，并登录你的抖音账号。
-
-3. 登录成功后，点击浏览器右上角的 Cookie-Editor 插件图标。
-
-4. 点击 `Export`，选择 `JSON`，复制导出的完整数组内容。
-
-   ![cookie](assets/readme/cookie.png)
-
-导出的内容大概长这样：
-
-```json
-[
-  {
-    "domain": ".douyin.com",
-    "expirationDate": 1800175766.87008,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "UIFID",
-    "path": "/",
-    "sameSite": "no_restriction",
-    "secure": true,
-    "session": false,
-    "storeId": null,
-    "value": "替换成真实 Cookie 值"
-  }
-]
-```
-
-后面配置 `DOUYIN_COOKIE` 时，需要把整个 JSON 数组作为 Secret 填进去。
-
-## 运行方式
-### ⚙️ GitHub Actions
-
-推荐直接使用 GitHub Actions 定时运行
-
-#### 1️⃣ Fork 项目
-
-点击 GitHub 页面右上角的 `Fork`（同时希望可以 star ⭐一下本项目），把本项目复制到你自己的 GitHub 账号下。
-
-![fork](assets/readme/fork.jpg)
-
-Fork 后进入你自己的仓库，例如：
-
-```text
-https://github.com/你的用户名/douyin-auto-spark
-```
-
-#### 2️⃣ 配置 Secrets
-
-进入你 Fork 后的仓库：
-
-```text
-Settings -> Secrets and variables -> Actions -> New repository secret
-```
-
-![add-secret](assets/readme/add-secret.jpg)
-
-添加以下 secrets：
-
-| Secret | 必填 | 说明 |
-|:---|:---:|:---|
-| `DOUYIN_COOKIE` | ✅ | Cookie-Editor 导出的完整 Cookie JSON 数组 |
-| `DOUYIN_TARGET_NAMES` | ✅ | 需要续火的好友名称 JSON 数组，例如 `["暮邵落白"]`，建议填写抖音备注名 |
-| `DOUYIN_ACCOUNTS` | ❌ | 多账号配置，配置后会无视单账号配置，详情见下方「👥 多账号配置」 |
-| `YIYAN_INCLUDE_SOURCE` | ❌ | 是否携带一言出处，默认开启；设置为 `false` 时只发送一言正文 |
-| `SPARK_MESSAGE_TEMPLATE` | ❌ | 自定义火花消息模板，见下方「✉️ 自定义消息模板」 |
-| `MAIL_ADDRESS` | ❌ | 任务失败提醒的收件邮箱，同时作为邮件发件人地址 |
-| `MAIL_USERNAME` | ❌ | QQ 邮箱 SMTP 登录账号，通常与 `MAIL_ADDRESS` 相同 |
-| `MAIL_PASSWORD` | ❌ | QQ 邮箱 SMTP 授权码 |
-
-配置 `MAIL_ADDRESS`、`MAIL_USERNAME` 和 `MAIL_PASSWORD` 后，续火失败会向 `MAIL_ADDRESS` 发送提醒邮件，并附带失败图片。
-
-#### 3️⃣ 手动运行一次
-
-```text
-Actions -> 点击绿色的 I understand my workflows, go ahead and enable them -> 🚀 续一次火 -> Enable workflow -> Run workflow
-```
-
-点击 `Run workflow` 后等待任务完成。手机打开抖音，你就可以发现你发了一条嘉豪语录给朋友了
-
-![run-workflow](assets/readme/run-workflow.jpg)
-
-#### 4️⃣ 每天自动运行
-
-如果手动运行一次没报错，那么默认情况下，每天北京时间 0 点会自动续一次火（不需要配置任何其他东西），但是由于 github 会延迟，大概最多凌晨 3 点之前会自动续一次火
-
-### 💻 本地运行
-
-#### 1️⃣ 安装依赖
-
-本地调试需要 Node.js 和 pnpm
+将仓库放入 Yunzai 的 `plugins/douyin-auto-spark`，在 Yunzai 根目录执行：
 
 ```bash
-pnpm install
+pnpm --dir plugins/douyin-auto-spark install --prod
+pnpm --dir plugins/douyin-auto-spark exec playwright install chromium
 ```
 
-#### 2️⃣ 配置环境变量
+复制 `config/default_config.yaml` 为 `config/config.yaml`，可配置浏览器、默认消息、定时任务和 SMTP。该配置不包含用户账号或 Cookie。
 
-复制 `.env.example` 为 `.env`，并按实际情况修改：
+## 私聊账号配置
 
-```bash
-cp .env.example .env
+私聊机器人发送 `#抖音添加账号`，机器人会发送一次性网页链接。网页内填写：
+
+1. 本账号的别名。
+2. Cookie-Editor 导出的完整 Cookie JSON 数组，可直接粘贴或选择 `.txt` 文件。
+3. 需要续火的会话名，可逐行输入或粘贴 JSON 数组。
+4. 自定义消息模板和失败通知收件邮箱。
+
+链接默认 10 分钟有效，提交成功后即失效。网页默认挂载到 TRSS 的 `/douyin-auto-spark`；将 `web.mountToTrss` 设为 `false` 后，插件使用 `web.standalonePort`（默认 3065）独立提供页面。手机访问时，在 Guoba 的“网页账号配置”或 `config/config.yaml` 中设置 `web.baseUrl` 为手机可访问的地址。发送 `#抖音修改账号 账号名` 可修改会话、模板和邮箱；Cookie 留空会保留原值，重新粘贴或上传 `.txt` 可更新过期 Cookie。流程中可随时发送 `#抖音取消添加` 使链接失效。
+
+## 命令
+
+- `#抖音添加账号`：私聊分步添加一个账号。
+- `#抖音取消添加`：取消当前添加流程。
+- `#抖音账号列表`：查看自己添加的账号别名和会话数量。
+- `#抖音删除账号 账号名`：删除自己的指定账号。
+- `#抖音修改账号 账号名`：私聊获取指定账号的一次性修改链接。
+- `#抖音设置邮箱 your@example.com`：私聊设置自己的失败通知收件邮箱。
+- `#抖音成功邮件开启`：私聊开启自己的续火成功邮件通知。
+- `#抖音成功邮件关闭`：私聊关闭自己的续火成功邮件通知。
+- `#抖音邮箱`：私聊查看当前收件邮箱。
+- `#抖音清除邮箱`：私聊清除收件邮箱，此后失败不发邮件。
+- `#抖音续火`：执行自己全部账号。
+- `#抖音续火 账号名`：仅执行自己的指定账号。
+- `#抖音续火 全部`：仅机器人主人可用，执行所有用户账号。
+- `#抖音续火帮助`：显示简要帮助。
+
+定时任务默认每天 0 点执行数据库内全部账号；可在 Guoba 或 `config/config.yaml` 修改 `schedule.cron`，设置 `schedule.enabled: false` 后重启 Yunzai 可关闭定时任务。
+
+## SMTP 失败通知
+
+```yaml
+smtp:
+  enabled: true
+  host: smtp.qq.com
+  port: 465
+  secure: true
+  username: your@qq.com
+  password: 邮箱授权码
+  from: your@qq.com
 ```
 
-核心配置如下：
+SMTP 主机、端口、发件人和授权码由管理员全局配置。每位用户需设置自己的收件邮箱才会接收邮件；失败邮件默认发送，成功邮件由用户在网页中勾选或私聊发送 `#抖音成功邮件开启` 后发送。失败时只会发送该用户账号的错误和截图，不会包含其他用户信息。
 
-| 变量 | 必填 | 默认值 | 说明 |
-|:---|:---:|:---:|:---|
-| `DOUYIN_COOKIE` | ✅ | - | Cookie-Editor 导出的完整 Cookie JSON 数组 |
-| `DOUYIN_TARGET_NAMES` | ✅ | - | 要发送消息的好友名称 JSON 数组 |
-| `DOUYIN_ACCOUNTS` | ❌ | - | 多账号配置，配置后会无视单账号配置，详情见下方「👥 多账号配置」 |
-| `YIYAN_INCLUDE_SOURCE` | ❌ | `true` | 是否携带一言出处，设置为 `false` 时只发送一言正文 |
-| `SPARK_MESSAGE_TEMPLATE` | ❌ | - | 自定义火花消息模板，见下方「自定义消息模板」 |
-| `PLAYWRIGHT_BROWSER_PATH` | ❌ | - | 本机 Chrome / Chromium / Edge 可执行文件路径，不填则使用 Playwright 默认浏览器 |
-| `PLAYWRIGHT_HEADLESS` | ❌ | `true` | 是否使用无头模式 |
-| `AUTO_CLOSE` | ❌ | `true` | 发送完成后是否自动关闭浏览器 |
+## 消息模板
 
-#### 3️⃣ 启动项目
+全局 `message.template` 与每个账号的自定义模板均支持：`{{account}}`、`{{friend}}`、`{{yiyan}}`、`{{from}}`、`{{date}}`、`{{time}}`、`{{weekday}}`。模板留空时发送随机一言，并按 `message.includeSource` 决定是否附带出处。
 
-```bash
-pnpm dev
-```
-
-脚本会打开 `https://www.douyin.com/chat`，依次定位配置中的好友并发送随机一言。
-
-## 👥 多账号配置
-
-需要为多个抖音账号续火时，将下面的 JSON 保存为 GitHub Secret 或本地环境变量 `DOUYIN_ACCOUNTS`。每个账号的 `cookie` 都要替换成 Cookie-Editor 导出的完整数组。
-
-```json
-[
-  {
-    "name": "账号1",
-    "cookie": [
-      {
-        "domain": ".douyin.com",
-        "expirationDate": 1800175766.87008,
-        "hostOnly": false,
-        "httpOnly": false,
-        "name": "UIFID",
-        "path": "/",
-        "sameSite": "no_restriction",
-        "secure": true,
-        "session": false,
-        "storeId": null,
-        "value": "账号1的真实 Cookie 值"
-      }
-    ],
-    "targetNames": ["好友A", "好友B"]
-  },
-  {
-    "name": "账号2",
-    "cookie": [
-      {
-        "domain": ".douyin.com",
-        "expirationDate": 1800175766.87008,
-        "hostOnly": false,
-        "httpOnly": false,
-        "name": "UIFID",
-        "path": "/",
-        "sameSite": "no_restriction",
-        "secure": true,
-        "session": false,
-        "storeId": null,
-        "value": "账号2的真实 Cookie 值"
-      }
-    ],
-    "targetNames": ["好友C"],
-    "messageTemplate": "{{friend}}，{{account}} 今天来续火啦\\n{{date}} {{weekday}}"
-  }
-]
-```
-
-每个账号对象支持的字段：
-
-| 字段 | 必填 | 说明 |
-|:---|:---:|:---|
-| `name` | ✅ | 账号标识，用于日志、错误提示、失败截图和 `{{account}}` 占位符；不同账号不能重名 |
-| `cookie` | ✅ | Cookie-Editor 为这个账号导出的完整 JSON 数组 |
-| `targetNames` | ✅ | 这个账号需要发送消息的好友名称数组，建议使用抖音备注名 |
-| `messageTemplate` | ❌ | 账号独立模板；JSON 字符串中的换行写成 `\n`，未配置时继承全局模板 |
-
-配置 `DOUYIN_ACCOUNTS` 后会优先使用多账号配置。脚本会依次运行各账号，单个账号失败后继续执行其余账号，最后统一报告失败。
-
-## ✉️ 自定义消息模板
-
-配置 `SPARK_MESSAGE_TEMPLATE` 可定义所有账号共用的默认消息内容；账号对象中的 `messageTemplate` 可以覆盖它：
-
-```dotenv
-SPARK_MESSAGE_TEMPLATE={{friend}}，今天的火花到账啦🔥\n{{yiyan}}\n——「{{from}}」\n{{date}} {{weekday}}
-```
-
-支持的占位符：
-
-| 占位符 | 说明 |
-|:---|:---|
-| `{{account}}` | 当前账号的配置名称 |
-| `{{friend}}` | 好友名 |
-| `{{yiyan}}` | 一言正文 |
-| `{{from}}` | 一言出处 |
-| `{{date}}` | 日期 `yyyy-MM-dd` |
-| `{{time}}` | 时间 `HH:mm` |
-| `{{weekday}}` | 星期几 |
-
-## 🔨 开发命令
-
-```bash
-# 启动脚本
-pnpm dev
-
-# TypeScript 类型检查
-pnpm typecheck
-
-# 代码格式化
-pnpm format
-```
-
-## 📂 项目结构
-
-```text
-douyin-auto-spark/
-├── .github/workflows/
-│   └── renew-fire.yml          # 🚀 GitHub Actions 定时续火任务
-├── assets/
-│   ├── readme/                 # 🖼️ README 资源
-│   └── yiyan.json              # 📚 随机消息数据源
-├── src/
-│   ├── main.ts                 # 🎭 Playwright 自动化入口
-│   └── types/
-│       ├── douyin-cookie.ts    # 🍪 抖音 Cookie 类型
-│       └── yiyan.ts            # 💬 一言数据类型
-├── .env.example                # ⚙️ 环境变量示例
-├── .gitignore                  # 🙈 Git 忽略规则
-├── .oxfmtrc.jsonc              # 🎨 oxfmt 配置
-├── .oxlintrc.jsonc             # 🔍 oxlint 配置
-├── LICENSE                     # 📄 GPL v3.0 许可证
-├── pnpm-lock.yaml              # 🔒 pnpm 依赖锁文件
-├── tsconfig.json               # 🧩 TypeScript 配置
-└── package.json                # 📦 项目依赖与脚本
-```
-
-## 🛠️ 本地环境
-
-|  环境   | 版本要求 |
-|:-------:|:--------:|
-| Node.js |   20+    |
-|  pnpm   |    11    |
-
-## 🔗 主要依赖
-
-| 依赖 | 用途 |
-|:---|:---|
-| `playwright` | 自动打开浏览器、注入 Cookie、定位会话并发送消息 |
-| `dotenv` | 读取本地 `.env` 配置 |
-| `tsx` | 本地通过 `pnpm dev` 运行 TypeScript 脚本 |
-| `typescript` | 执行 `pnpm typecheck` 类型检查 |
-| `oxlint` / `oxfmt` | 代码检查与格式化 |
-
-## 📄 许可证
-
-本项目采用 [GPL v3.0](LICENSE) 开源许可证。
+`data/data.db` 包含可复用的登录 Cookie，应限制服务器文件访问权限并纳入备份策略。

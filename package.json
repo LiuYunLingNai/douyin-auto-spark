@@ -1,28 +1,15 @@
 {
   "name": "douyin-auto-spark",
   "version": "1.0.0",
+  "type": "module",
   "license": "GPL-3.0-only",
-  "scripts": {
-    "dev": "tsx src/main.ts",
-    "prepare": "husky",
-    "check": "pnpm run \"/^(type-check|lint:check|format:check)$/\"",
-    "type-check": "tsc --noEmit",
-    "lint:check": "oxlint",
-    "format:check": "oxfmt --check",
-    "fix": "oxlint --fix && oxfmt"
-  },
   "dependencies": {
+    "chalk": "^5.6.2",
     "dayjs": "1.11.21",
-    "dotenv": "17.4.2",
-    "playwright": "1.61.0"
-  },
-  "devDependencies": {
-    "@types/node": "24.13.3",
-    "husky": "^9.1.7",
-    "oxfmt": "0.59.0",
-    "oxlint": "1.74.0",
-    "tsx": "4.23.1",
-    "typescript": "7.0.2"
+    "nodemailer": "^7.0.6",
+    "playwright": "1.61.0",
+    "sql.js": "^1.13.0",
+    "yaml": "^2.8.1"
   },
   "packageManager": "pnpm@11.19.0"
 }
