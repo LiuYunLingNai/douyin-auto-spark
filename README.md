@@ -4,14 +4,15 @@ TRSS-Yunzai 插件。每位 QQ 用户可私聊机器人添加自己的多个抖�
 
 ## 安装
 
-将仓库放入 Yunzai 的 `plugins/douyin-auto-spark`，在 Yunzai 根目录执行：
+在 Yunzai 根目录执行：
 
 ```bash
+git clone -b yunzai-plugin --single-branch https://github.com/LiuYunLingNai/douyin-auto-spark.git plugins/douyin-auto-spark
 pnpm --dir plugins/douyin-auto-spark install --prod
 pnpm --dir plugins/douyin-auto-spark exec playwright install chromium
 ```
 
-复制 `config/default_config.yaml` 为 `config/config.yaml`，可配置浏览器、默认消息、定时任务和 SMTP。该配置不包含用户账号或 Cookie。
+首次启动会自动创建 `plugins/douyin-auto-spark/config/config.yaml`，可在 Guoba 或该文件配置浏览器、默认消息、定时任务和 SMTP。若已在 `browser.executablePath` 填写可用的 Chrome/Edge 路径，可跳过安装 Chromium 的命令。
 
 ## 私聊账号配置
 
@@ -41,7 +42,7 @@ pnpm --dir plugins/douyin-auto-spark exec playwright install chromium
 - `#抖音续火 全部`：仅机器人主人可用，执行所有用户账号。
 - `#抖音续火帮助`：显示简要帮助。
 
-定时任务默认每天 0 点执行数据库内全部账号；可在 Guoba 或 `config/config.yaml` 修改 `schedule.cron`，设置 `schedule.enabled: false` 后重启 Yunzai 可关闭定时任务。
+定时任务默认每天 00:10 执行数据库内全部账号；可在 Guoba 或 `config/config.yaml` 修改 `schedule.cron`，设置 `schedule.enabled: false` 后会自动关闭定时任务。
 
 ## SMTP 失败通知
 
