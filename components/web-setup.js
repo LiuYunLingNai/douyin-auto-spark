@@ -329,18 +329,21 @@ async function getScanStatus(token) {
 async function maybeRequestSmsVerification(scan) {
   if (scan.smsRequested || !scan.page || scan.page.isClosed()) return
   try {
-    // 抖音会在文案中插入空格或换行，使用正则匹配并取最后一个可见选项。
-    const receive = scan.page.getByText(/^\s*接收短信验证码\s*$/).last()
-    if (!await receive.isVisible().catch(() => false)) return
-    const row = receive.locator('xpath=..')
-    if (await row.isVisible().catch(() => false)) {
-      await row.click({ force: true, timeout: 5000 })
-    } else {
-      await receive.click({ force: true, timeout: 5000 })
+    // 身份验证组件可能位于 iframe，逐个 frame 查找可见选项。
+    for (const frame of scan.page.frames()) {
+      const receive = frame.getByText(/^\s*接收短信验证码\s*$/).last()
+      if (!await receive.isVisible().catch(() => false)) continue
+      const row = receive.locator('xpath=..')
+      if (await row.isVisible().catch(() => false)) {
+        await row.click({ force: true, timeout: 5000 })
+      } else {
+        await receive.click({ force: true, timeout: 5000 })
+      }
+      scan.smsRequested = true
+      logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
+      await saveScanScreenshot(scan)
+      return
     }
-    scan.smsRequested = true
-    logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
-    await saveScanScreenshot(scan)
   } catch (error) {
     logger.warn(`[抖音续火] 自动点击接收短信验证码失败：${error.message}`)
   }
@@ -348,8 +351,18 @@ async function maybeRequestSmsVerification(scan) {
 
 async function submitScanSmsCode(scan, code) {
   if (!scan.page || scan.page.isClosed()) throw new Error('扫码浏览器已关闭，请重新获取二维码。')
-  const specificInput = scan.page.locator('#button-input').first()
-  if (await specificInput.isVisible().catch(() => false)) {
+  const frames = scan.page.frames()
+  let specificInput
+  let inputFrame
+  for (const frame of frames) {
+    const candidate = frame.locator('#button-input').first()
+    if (await candidate.isVisible().catch(() => false)) {
+      specificInput = candidate
+      inputFrame = frame
+      break
+    }
+  }
+  if (specificInput) {
     await specificInput.fill(code)
     const actualValue = await specificInput.evaluate((element) => element.value).catch(() => '')
     if (actualValue !== code) {
@@ -360,14 +373,19 @@ async function submitScanSmsCode(scan, code) {
     if (verifiedValue !== code) throw new Error('验证码未能填入抖音页面，请重新提交。')
     await saveScanScreenshot(scan)
     logger.info('[抖音续火] 已将短信验证码填入抖音页面')
-    const specificSubmit = scan.page.getByRole('button', { name: /验证|登录|确认|提交/ }).first()
-    if (!await specificSubmit.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
-    await specificSubmit.click()
+    await clickSmsSubmit(inputFrame)
     scan.smsCodeSubmitted = true
     await saveScanScreenshot(scan)
     return
   }
-  const inputs = await scan.page.locator('input').all()
+  const inputs = []
+  const inputFrames = []
+  for (const frame of frames) {
+    for (const input of await frame.locator('input').all()) {
+      inputs.push(input)
+      inputFrames.push(frame)
+    }
+  }
   let codeInput
   let fallbackInput
   for (const input of inputs) {
@@ -383,11 +401,23 @@ async function submitScanSmsCode(scan, code) {
   codeInput ||= fallbackInput
   if (!codeInput) throw new Error('未找到短信验证码输入框，请点击刷新二维码后重试。')
   await codeInput.fill(code)
-  const submit = scan.page.getByRole('button', { name: /登录|确认|验证|提交/ }).first()
-  if (!await submit.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
-  await submit.click()
+  const codeFrame = inputFrames[inputs.indexOf(codeInput)]
+  await clickSmsSubmit(codeFrame)
   scan.smsCodeSubmitted = true
   await saveScanScreenshot(scan)
+}
+
+async function clickSmsSubmit(frame) {
+  if (!frame) throw new Error('未找到验证码提交按钮。')
+  const submit = frame.getByRole('button', { name: /验证|登录|确认|提交/ }).first()
+  if (await submit.isVisible().catch(() => false)) {
+    await submit.click()
+    return
+  }
+  const text = frame.getByText(/^\s*验证\s*$/).last()
+  if (!await text.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
+  const row = text.locator('xpath=..')
+  await (await row.isVisible().catch(() => false) ? row : text).click({ force: true, timeout: 5000 })
 }
 
 function hasDouyinSessionCookie(cookies) {
