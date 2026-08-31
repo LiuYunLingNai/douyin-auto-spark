@@ -411,33 +411,42 @@ async function enterSmsCode(input, code, frame) {
   const page = frame?.page?.()
   const existingValue = await input.evaluate((element) => element.value || '').catch(() => '')
   if (existingValue) await input.fill('').catch(() => {})
+  let typedValue = ''
   for (const character of value) {
     await prepareSmsInput(input)
-    const box = await input.boundingBox().catch(() => null)
-    if (page && box) {
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
-      await page.keyboard.press(character).catch(() => {})
-    } else {
-      await input.press(character).catch(() => {})
-    }
+    typedValue += character
+    if (page) await page.keyboard.insertText(character).catch(() => {})
+    else await input.press(character).catch(() => {})
     if (page) await page.waitForTimeout(120).catch(() => {})
+    const currentValue = await input.evaluate((element) => element.value || '').catch(() => '')
+    if (currentValue !== typedValue) {
+      await setSmsInputValue(input, typedValue)
+    }
   }
   let actualValue = await input.evaluate((element) => element.value).catch(() => '')
   if (actualValue !== value) {
     await prepareSmsInput(input)
-    await input.fill(value).catch(() => {})
+    await setSmsInputValue(input, value)
     actualValue = await input.evaluate((element) => element.value).catch(() => '')
   }
   if (actualValue !== value) {
-    await input.evaluate((element, nextValue) => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-      setter?.call(element, nextValue)
-      element.dispatchEvent(new Event('input', { bubbles: true }))
-      element.dispatchEvent(new Event('change', { bubbles: true }))
-    }, value).catch(() => {})
+    await setSmsInputValue(input, value)
     actualValue = await input.evaluate((element) => element.value).catch(() => '')
   }
   if (actualValue !== value) throw new Error('验证码未能填入抖音页面，请重新提交。')
+}
+
+async function setSmsInputValue(input, value) {
+  await input.evaluate((element, nextValue) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter?.call(element, nextValue)
+    element.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      inputType: 'insertText',
+      data: nextValue,
+    }))
+    element.dispatchEvent(new Event('change', { bubbles: true }))
+  }, String(value)).catch(() => {})
 }
 
 async function clickSmsSubmit(frame) {
