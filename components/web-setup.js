@@ -408,19 +408,19 @@ async function prepareSmsInput(input) {
 
 async function enterSmsCode(input, code, frame) {
   const value = String(code)
-  await prepareSmsInput(input)
   const page = frame?.page?.()
-  const box = await input.boundingBox().catch(() => null)
-  if (page && box) {
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
-    await page.waitForTimeout(150)
-    await page.keyboard.press('ControlOrMeta+A').catch(() => {})
-    await page.keyboard.press('Backspace').catch(() => {})
-    await page.keyboard.type(value, { delay: 120 }).catch(() => {})
-  } else {
-    await input.press('ControlOrMeta+A').catch(() => {})
-    await input.press('Backspace').catch(() => {})
-    await input.pressSequentially(value, { delay: 120 }).catch(() => {})
+  const existingValue = await input.evaluate((element) => element.value || '').catch(() => '')
+  if (existingValue) await input.fill('').catch(() => {})
+  for (const character of value) {
+    await prepareSmsInput(input)
+    const box = await input.boundingBox().catch(() => null)
+    if (page && box) {
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+      await page.keyboard.press(character).catch(() => {})
+    } else {
+      await input.press(character).catch(() => {})
+    }
+    if (page) await page.waitForTimeout(120).catch(() => {})
   }
   let actualValue = await input.evaluate((element) => element.value).catch(() => '')
   if (actualValue !== value) {
