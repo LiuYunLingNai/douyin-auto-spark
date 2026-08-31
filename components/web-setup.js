@@ -266,15 +266,16 @@ async function getScanStatus(token) {
       // 扫码回调可能把 Cookie 写入 passport.douyin.com 等子域，因此读取整个上下文。
       const cookies = await scan.context.cookies()
       // 未登录页面也可能存在 csrf 或空 Cookie，只把真实的非空会话 Cookie 视为登录成功。
-      if (hasDouyinSessionCookie(cookies)) {
+      const hasSessionCookie = hasDouyinSessionCookie(cookies)
+      if (hasSessionCookie) {
         // 登录回调可能分多次写入 Cookie，稍等后再读取一次，避免保存半套 Cookie。
         await scan.page?.waitForTimeout(1000).catch(() => {})
-        const settledCookies = await scan.context.cookies()
-        if (hasDouyinSessionCookie(settledCookies)) {
-          scan.cookies = settledCookies
-          scan.status = 'success'
-          await closeScanBrowser(scan)
-        }
+      }
+      const settledCookies = hasSessionCookie ? await scan.context.cookies() : cookies
+      if (hasDouyinSessionCookie(settledCookies) || await looksLoggedInPage(scan.page, settledCookies)) {
+        scan.cookies = await scan.context.cookies()
+        scan.status = 'success'
+        await closeScanBrowser(scan)
       }
     } catch (error) {
       scan.status = 'error'
@@ -297,6 +298,24 @@ function hasDouyinSessionCookie(cookies) {
     && typeof cookie.value === 'string'
     && cookie.value.trim().length >= 8,
   )
+}
+
+async function looksLoggedInPage(page, cookies) {
+  if (!page || page.isClosed()) return false
+  const hasDouyinCookie = cookies.some((cookie) =>
+    typeof cookie.domain === 'string'
+    && /(^|\.)douyin\.com$/i.test(cookie.domain)
+    && typeof cookie.value === 'string'
+    && cookie.value.trim(),
+  )
+  if (!hasDouyinCookie) return false
+  try {
+    const prompt = page.getByText('登录后免费畅享高清视频', { exact: false })
+    if (await prompt.isVisible().catch(() => false)) return false
+    return await page.locator('input[placeholder="搜索"]').first().isVisible().catch(() => false)
+  } catch {
+    return false
+  }
 }
 
 async function closeScanSession(token) {
