@@ -348,17 +348,39 @@ async function maybeRequestSmsVerification(scan) {
 
 async function submitScanSmsCode(scan, code) {
   if (!scan.page || scan.page.isClosed()) throw new Error('扫码浏览器已关闭，请重新获取二维码。')
+  const specificInput = scan.page.locator('#button-input').first()
+  if (await specificInput.isVisible().catch(() => false)) {
+    await specificInput.fill(code)
+    const actualValue = await specificInput.evaluate((element) => element.value).catch(() => '')
+    if (actualValue !== code) {
+      await specificInput.fill('')
+      await specificInput.pressSequentially(code)
+    }
+    const verifiedValue = await specificInput.evaluate((element) => element.value).catch(() => '')
+    if (verifiedValue !== code) throw new Error('验证码未能填入抖音页面，请重新提交。')
+    await saveScanScreenshot(scan)
+    logger.info('[抖音续火] 已将短信验证码填入抖音页面')
+    const specificSubmit = scan.page.getByRole('button', { name: /验证|登录|确认|提交/ }).first()
+    if (!await specificSubmit.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
+    await specificSubmit.click()
+    scan.smsCodeSubmitted = true
+    await saveScanScreenshot(scan)
+    return
+  }
   const inputs = await scan.page.locator('input').all()
   let codeInput
+  let fallbackInput
   for (const input of inputs) {
     if (!await input.isVisible().catch(() => false)) continue
     const placeholder = await input.getAttribute('placeholder').catch(() => '')
     const type = await input.getAttribute('type').catch(() => '')
-    if (/验证码|校验码|短信/.test(`${placeholder || ''}${type || ''}`) || type === 'text' || type === 'tel') {
+    if (/验证码|校验码|短信/.test(placeholder || '')) {
       codeInput = input
       break
     }
+    if (!fallbackInput && (type === 'text' || type === 'tel')) fallbackInput = input
   }
+  codeInput ||= fallbackInput
   if (!codeInput) throw new Error('未找到短信验证码输入框，请点击刷新二维码后重试。')
   await codeInput.fill(code)
   const submit = scan.page.getByRole('button', { name: /登录|确认|验证|提交/ }).first()
