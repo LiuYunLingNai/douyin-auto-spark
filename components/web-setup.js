@@ -37,8 +37,46 @@ export function createSetupLink({ userId, accountId }) {
   expiryTimer.unref?.()
   session.expiryTimer = expiryTimer
   return {
+    token,
     expiresMinutes: minutes,
     url: new URL(`${webState.prefix}/setup/${token}`, getBaseUrl(config)).toString(),
+  }
+}
+
+export function bindSetupMessage(token, event, messageId) {
+  const session = sessions.get(token)
+  if (!session || messageId === undefined || messageId === null) return false
+  const recall = event?.group?.recallMsg?.bind(event.group)
+    || event?.friend?.recallMsg?.bind(event.friend)
+    || event?.bot?.recallMsg?.bind(event.bot)
+  if (!recall) return false
+  session.messageId = messageId
+  session.recallMessage = recall
+  const seconds = Number(getConfig().web?.setupMessageRecallSeconds)
+  if (Number.isFinite(seconds) && seconds > 0) {
+    const timer = setTimeout(() => { void recallBoundSetupMessage(session) }, seconds * 1000)
+    timer.unref?.()
+    session.recallTimer = timer
+  }
+  return true
+}
+
+export async function recallSetupMessage(token) {
+  const session = sessions.get(token)
+  return recallBoundSetupMessage(session)
+}
+
+async function recallBoundSetupMessage(session) {
+  if (!session?.recallMessage || session.messageRecalled) return false
+  session.messageRecalled = true
+  clearTimeout(session.recallTimer)
+  try {
+    await session.recallMessage(session.messageId)
+    return true
+  } catch (error) {
+    session.messageRecalled = false
+    logger.warn(`[抖音续火] 撤回网页链接消息失败：${error.message}`)
+    return false
   }
 }
 
@@ -150,6 +188,7 @@ async function handleSetupSubmit(token, body, res) {
   session.submitting = true
   try {
     const message = await saveWebSetup(session, body)
+    if (getConfig().web?.recallSetupMessageOnComplete === true) await recallSetupMessage(token)
     sessions.delete(token)
     clearTimeout(session.expiryTimer)
     await closeScanSession(token)

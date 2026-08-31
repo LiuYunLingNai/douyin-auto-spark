@@ -27,3 +27,7 @@ web:
   # 手机访问时填可从手机访问到的地址，例如 http://192.168.1.10:2536
   baseUrl: ""
   linkExpiresMinutes: 10
+  # 添加或修改网页保存成功后撤回发送给用户的网页链接消息
+  recallSetupMessageOnComplete: false
+  # 网页链接发送后自动撤回秒数，0 表示不自动撤回
+  setupMessageRecallSeconds: 0

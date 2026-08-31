@@ -78,6 +78,22 @@ const schemas = [
     max: 60,
     defaultValue: 10,
   },
+  {
+    field: 'web.recallSetupMessageOnComplete',
+    label: '账号保存后撤回链接',
+    bottomHelpMessage: '账号添加或修改成功后撤回机器人发送的网页链接消息；关闭则保留链接直到过期。',
+    component: 'Switch',
+    defaultValue: false,
+  },
+  {
+    field: 'web.setupMessageRecallSeconds',
+    label: '网页链接自动撤回秒数',
+    bottomHelpMessage: '网页链接发送后自动撤回的时间，0 表示不自动撤回；与“账号保存后撤回链接”可同时开启。',
+    component: 'InputNumber',
+    min: 0,
+    max: 86400,
+    defaultValue: 0,
+  },
   { component: 'Divider', label: 'SMTP 邮件通知' },
   {
     field: 'smtp.enabled',

@@ -26,7 +26,14 @@ const defaults = {
     password: '',
     from: '',
   },
-  web: { mountToTrss: true, standalonePort: 3065, baseUrl: '', linkExpiresMinutes: 10 },
+  web: {
+    mountToTrss: true,
+    standalonePort: 3065,
+    baseUrl: '',
+    linkExpiresMinutes: 10,
+    recallSetupMessageOnComplete: false,
+    setupMessageRecallSeconds: 0,
+  },
 }
 
 function merge(base, value) {
