@@ -91,6 +91,7 @@ function registerMountedRoutes() {
   app.post(`${webState.prefix}/api/setup/:token`, (req, res) => handleSetupSubmit(req.params.token, req.body, res))
   app.post(`${webState.prefix}/api/scan/start/:token`, (req, res) => handleScanStart(req.params.token, res))
   app.post(`${webState.prefix}/api/scan/refresh/:token`, (req, res) => handleScanRefresh(req.params.token, res))
+  app.post(`${webState.prefix}/api/scan/sms/:token`, (req, res) => handleScanSms(req.params.token, req.body, res))
   app.get(`${webState.prefix}/api/scan/status/:token`, (req, res) => handleScanStatus(req.params.token, res))
 }
 
@@ -116,11 +117,13 @@ async function handleStandaloneRequest(req, res) {
   const api = new RegExp(`^${webState.prefix}/api/setup/([a-f0-9]{64})$`).exec(url.pathname)
   const scanStart = new RegExp(`^${webState.prefix}/api/scan/start/([a-f0-9]{64})$`).exec(url.pathname)
   const scanRefresh = new RegExp(`^${webState.prefix}/api/scan/refresh/([a-f0-9]{64})$`).exec(url.pathname)
+  const scanSms = new RegExp(`^${webState.prefix}/api/scan/sms/([a-f0-9]{64})$`).exec(url.pathname)
   const scanStatus = new RegExp(`^${webState.prefix}/api/scan/status/([a-f0-9]{64})$`).exec(url.pathname)
   if (req.method === 'GET' && page) return handleSetupPage(page[1], res)
   if (req.method === 'POST' && api) return handleSetupSubmit(api[1], await readJsonBody(req), res)
   if (req.method === 'POST' && scanStart) return handleScanStart(scanStart[1], res)
   if (req.method === 'POST' && scanRefresh) return handleScanRefresh(scanRefresh[1], res)
+  if (req.method === 'POST' && scanSms) return handleScanSms(scanSms[1], await readJsonBody(req), res)
   if (req.method === 'GET' && scanStatus) return handleScanStatus(scanStatus[1], res)
   sendHtml(res, 404, renderMessagePage('页面不存在。'))
 }
@@ -178,6 +181,20 @@ async function handleScanRefresh(token, res) {
   }
 }
 
+async function handleScanSms(token, body, res) {
+  if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
+  try {
+    const scan = scanSessions.get(token)
+    if (!scan) throw new Error('扫码会话不存在，请重新获取二维码。')
+    const code = String(body?.code || '').trim()
+    if (!/^\d{4,8}$/.test(code)) throw new Error('短信验证码应为 4 到 8 位数字。')
+    await submitScanSmsCode(scan, code)
+    sendJson(res, 200, { ok: true, message: '验证码已提交，请等待登录结果。' })
+  } catch (error) {
+    sendJson(res, 400, { ok: false, message: error.message || '提交短信验证码失败。' })
+  }
+}
+
 async function handleScanStatus(token, res) {
   if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
   try {
@@ -209,7 +226,7 @@ async function startScanSession(token, { force = false } = {}) {
     await browser?.close().catch(() => {})
     throw error
   }
-  const scan = { token, browser, context, page, status: 'waiting', qr: '', cookies: undefined, error: undefined, cookieFingerprint: '', screenshotLogged: false, startedAt: Date.now() }
+  const scan = { token, browser, context, page, status: 'waiting', qr: '', cookies: undefined, error: undefined, cookieFingerprint: '', screenshotLogged: false, smsRequested: false, smsCodeSubmitted: false, startedAt: Date.now() }
   scanSessions.set(token, scan)
   try {
     await page.goto('https://www.douyin.com/chat', { waitUntil: 'domcontentloaded', timeout: 30000 })
@@ -268,6 +285,7 @@ async function getScanStatus(token) {
     try {
       // 扫码回调可能把 Cookie 写入 passport.douyin.com 等子域，因此读取整个上下文。
       const cookies = await scan.context.cookies()
+      await maybeRequestSmsVerification(scan)
       const fingerprint = cookies
         .map((cookie) => `${cookie.domain}:${cookie.name}:${String(cookie.value || '').length}`)
         .sort()
@@ -304,7 +322,46 @@ async function getScanStatus(token) {
     return { status: 'error', message }
   }
   if (scan.status === 'success') return { status: 'success', cookies: scan.cookies }
+  if (scan.smsRequested && !scan.smsCodeSubmitted) return { status: 'sms', message: '已点击接收短信验证码，请输入短信验证码。' }
   return { status: 'waiting' }
+}
+
+async function maybeRequestSmsVerification(scan) {
+  if (scan.smsRequested || !scan.page || scan.page.isClosed()) return
+  try {
+    const identity = scan.page.getByText('身份验证', { exact: false })
+    if (!await identity.isVisible().catch(() => false)) return
+    const receive = scan.page.getByText('接收短信验证码', { exact: true })
+    if (!await receive.isVisible().catch(() => false)) return
+    await receive.click()
+    scan.smsRequested = true
+    logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
+    await saveScanScreenshot(scan)
+  } catch (error) {
+    logger.warn(`[抖音续火] 自动点击接收短信验证码失败：${error.message}`)
+  }
+}
+
+async function submitScanSmsCode(scan, code) {
+  if (!scan.page || scan.page.isClosed()) throw new Error('扫码浏览器已关闭，请重新获取二维码。')
+  const inputs = await scan.page.locator('input').all()
+  let codeInput
+  for (const input of inputs) {
+    if (!await input.isVisible().catch(() => false)) continue
+    const placeholder = await input.getAttribute('placeholder').catch(() => '')
+    const type = await input.getAttribute('type').catch(() => '')
+    if (/验证码|校验码|短信/.test(`${placeholder || ''}${type || ''}`) || type === 'text' || type === 'tel') {
+      codeInput = input
+      break
+    }
+  }
+  if (!codeInput) throw new Error('未找到短信验证码输入框，请点击刷新二维码后重试。')
+  await codeInput.fill(code)
+  const submit = scan.page.getByRole('button', { name: /登录|确认|验证|提交/ }).first()
+  if (!await submit.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
+  await submit.click()
+  scan.smsCodeSubmitted = true
+  await saveScanScreenshot(scan)
 }
 
 function hasDouyinSessionCookie(cookies) {
@@ -508,6 +565,8 @@ function renderSetupPage(token, initial, editing) {
     .scan { display: grid; gap: 8px; padding: 12px; border: 1px solid #d7dee8; border-radius: 5px; background: #f8fafc; }
     .scan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .scan button { justify-self: start; }
+    .sms { display: none; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; }
+    .sms input { min-width: 0; }
     .qr { display: none; width: min(360px, 100%); max-height: 360px; object-fit: contain; border: 1px solid #d7dee8; background: #fff; }
     #status { margin: 0; min-height: 20px; color: #b42318; font-size: 14px; }
     #status.ok { color: #087443; }
@@ -530,6 +589,10 @@ function renderSetupPage(token, initial, editing) {
         </div>
         <img id="scanQr" class="qr" alt="抖音登录二维码">
         <span id="scanStatus" class="hint">也可以直接粘贴 Cookie JSON 或选择 .txt 文件。</span>
+        <div id="smsVerify" class="sms">
+          <input id="smsCode" inputmode="numeric" autocomplete="one-time-code" placeholder="输入短信验证码">
+          <button id="smsSubmit" type="button">提交验证码</button>
+        </div>
       </div>
       <label>Cookie JSON<textarea id="cookieText" class="cookie" ${editing ? '' : 'required'} placeholder="${editing ? '留空则保留当前 Cookie；需要更新时粘贴或选择 .txt 文件。' : '粘贴 Cookie-Editor 导出的 JSON 数组，或先选择 .txt 文件。'}"></textarea></label>
       <p id="status"></p>
@@ -545,6 +608,9 @@ function renderSetupPage(token, initial, editing) {
     const scanRefresh = document.querySelector('#scanRefresh');
     const scanQr = document.querySelector('#scanQr');
     const scanStatus = document.querySelector('#scanStatus');
+    const smsVerify = document.querySelector('#smsVerify');
+    const smsCode = document.querySelector('#smsCode');
+    const smsSubmit = document.querySelector('#smsSubmit');
     let scanTimer;
     for (const key of ['name', 'targetNames', 'messageTemplate', 'email']) document.querySelector('#' + key).value = initial[key] || '';
     document.querySelector('#successEmailEnabled').checked = Boolean(initial.successEmailEnabled);
@@ -559,6 +625,8 @@ function renderSetupPage(token, initial, editing) {
     async function requestQr(endpoint, loadingText) {
       scanLogin.disabled = true;
       scanRefresh.disabled = true;
+      smsVerify.style.display = 'none';
+      smsCode.value = '';
       scanStatus.textContent = loadingText;
       try {
         const response = await fetch(endpoint, { method: 'POST' });
@@ -574,11 +642,15 @@ function renderSetupPage(token, initial, editing) {
             if (!result.ok) throw new Error(result.message || '读取扫码状态失败');
             if (result.status === 'success') {
               clearInterval(scanTimer);
+              smsVerify.style.display = 'none';
               document.querySelector('#cookieText').value = JSON.stringify(result.cookies, null, 2);
               scanStatus.textContent = '扫码登录成功，Cookie 已填入下方文本框，请继续提交。';
               scanLogin.disabled = false;
               scanRefresh.disabled = false;
               scanLogin.textContent = '重新扫码';
+            } else if (result.status === 'sms') {
+              smsVerify.style.display = 'grid';
+              scanStatus.textContent = result.message || '请输入短信验证码。';
             } else if (result.status === 'error') {
               throw new Error(result.message || '扫码登录失败');
             }
@@ -597,6 +669,21 @@ function renderSetupPage(token, initial, editing) {
     }
     scanLogin.addEventListener('click', () => requestQr('${webState.prefix}/api/scan/start/${token}', '正在打开抖音登录页...'));
     scanRefresh.addEventListener('click', () => requestQr('${webState.prefix}/api/scan/refresh/${token}', '正在刷新二维码...'));
+    smsSubmit.addEventListener('click', async () => {
+      const code = smsCode.value.trim();
+      if (!/^\\d{4,8}$/.test(code)) { scanStatus.textContent = '请输入 4 到 8 位短信验证码。'; return; }
+      smsSubmit.disabled = true;
+      try {
+        const response = await fetch('${webState.prefix}/api/scan/sms/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.message || '提交短信验证码失败');
+        scanStatus.textContent = data.message || '验证码已提交，请等待登录结果。';
+      } catch (error) {
+        scanStatus.textContent = error.message || '提交短信验证码失败';
+      } finally {
+        smsSubmit.disabled = false;
+      }
+    });
     form.addEventListener('submit', async event => {
       event.preventDefault();
       clearInterval(scanTimer);
