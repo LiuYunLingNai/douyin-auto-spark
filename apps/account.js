@@ -17,7 +17,11 @@ import {
   readCookieTextFile,
   validateTemplate,
 } from '../components/account-setup.js'
-import { createSetupLink, revokeSetupLinks } from '../components/web-setup.js'
+import {
+  bindSetupMessage,
+  createSetupLink,
+  revokeSetupLinks,
+} from '../components/web-setup.js'
 
 export const accountHandlers = {
   startAddAccount,
@@ -37,8 +41,9 @@ export const accountHandlers = {
 async function startAddAccount(e) {
   try {
     await clearSetupSession(e.user_id)
-    const { url, expiresMinutes } = createSetupLink({ userId: e.user_id })
-    await e.reply(`请在 ${expiresMinutes} 分钟内打开链接添加账号：\n${url}`)
+    const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id })
+    const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接添加账号：\n${url}`)
+    bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
     logger.error('[抖音续火] 创建账号配置链接失败', error)
     await e.reply(`创建网页链接失败：${error.message}`)
@@ -145,8 +150,9 @@ async function editAccount(e) {
     return true
   }
   try {
-    const { url, expiresMinutes } = createSetupLink({ userId: e.user_id, accountId: account.id })
-    await e.reply(`请在 ${expiresMinutes} 分钟内打开链接修改账号“${name}”：\n${url}`)
+    const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id, accountId: account.id })
+    const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接修改账号“${name}”：\n${url}`)
+    bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
     logger.error('[抖音续火] 创建账号修改链接失败', error)
     await e.reply(`创建网页链接失败：${error.message}`)
