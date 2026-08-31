@@ -136,6 +136,7 @@ async function runAccount(browser, account, config, yiyans, screenshots) {
     const needsYiyan = !account.messageTemplate || /\{\{\s*(yiyan|from)\s*\}\}/.test(account.messageTemplate)
     const missing = []
     for (const targetName of account.targetNames) {
+      logger.info(`[${account.name}] 开始搜索会话：${targetName}`)
       const result = await searchConversation(page, searchInput, targetName)
       if (!result) {
         missing.push(targetName)
@@ -147,6 +148,7 @@ async function runAccount(browser, account, config, yiyans, screenshots) {
       const editor = page.locator('.messageEditorimChatEditorContainer [data-slate-editor="true"][contenteditable="true"]').first()
       await editor.waitFor({ state: 'visible', timeout: 10000 })
       await editor.click()
+      logger.info(`[${account.name}] 已打开私信：${targetName}`)
 
       const yiyan = needsYiyan ? pickRandom(yiyans) : undefined
       const message = account.messageTemplate
@@ -157,6 +159,7 @@ async function runAccount(browser, account, config, yiyans, screenshots) {
       await page.keyboard.insertText(message)
       await page.keyboard.press('Enter')
       sent += 1
+      logger.info(`[${account.name}] 已发送消息：${targetName}`)
       await page.waitForTimeout(1000)
     }
     if (missing.length > 0) {

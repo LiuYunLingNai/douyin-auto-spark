@@ -49,7 +49,7 @@ const schemas = [
   {
     field: 'web.mountToTrss',
     label: '挂载到 TRSS 网页服务',
-    bottomHelpMessage: '开启时页面路径为 /douyin-auto-spark；关闭后插件使用独立端口。私聊添加或修改账号可获取一次性网页链接。',
+    bottomHelpMessage: '开启时页面路径为 /douyin-auto-spark；关闭后插件使用独立端口。添加账号可在群聊或私聊使用，修改账号必须私聊。',
     component: 'Switch',
     defaultValue: true,
   },

@@ -1,6 +1,6 @@
 # 抖音续火 Yunzai 插件
 
-TRSS-Yunzai 插件。每位 QQ 用户可私聊机器人添加自己的多个抖音账号；账号 Cookie 保存在本地 SQLite 数据库 `data/data.db`，不会显示在 Guoba 面板或群聊消息中。插件使用 Playwright 打开抖音聊天页并向指定会话发送随机一言或自定义消息。
+TRSS-Yunzai 插件。每位 QQ 用户可通过机器人添加自己的多个抖音账号；账号 Cookie 保存在本地 SQLite 数据库 `data/data.db`，不会显示在 Guoba 面板或群聊消息中。插件使用 Playwright 打开抖音聊天页并向指定会话发送随机一言或自定义消息。
 
 ## 安装
 
@@ -14,9 +14,9 @@ pnpm --dir plugins/douyin-auto-spark exec playwright install chromium
 
 首次启动会自动创建 `plugins/douyin-auto-spark/config/config.yaml`，可在 Guoba 或该文件配置浏览器、默认消息、定时任务和 SMTP。若已在 `browser.executablePath` 填写可用的 Chrome/Edge 路径，可跳过安装 Chromium 的命令。
 
-## 私聊账号配置
+## 账号配置
 
-私聊机器人发送 `#抖音添加账号`，机器人会发送一次性网页链接。网页内填写：
+向机器人发送 `#抖音添加账号`，机器人会发送一次性网页链接。该命令可在群聊或私聊使用；修改已有账号必须私聊发送 `#抖音修改账号 账号名`。网页内填写：
 
 1. 本账号的别名。
 2. Cookie-Editor 导出的完整 Cookie JSON 数组，可直接粘贴或选择 `.txt` 文件。
@@ -27,7 +27,7 @@ pnpm --dir plugins/douyin-auto-spark exec playwright install chromium
 
 ## 命令
 
-- `#抖音添加账号`：私聊分步添加一个账号。
+- `#抖音添加账号`：发送一次性网页链接，添加一个账号。
 - `#抖音取消添加`：取消当前添加流程。
 - `#抖音账号列表`：查看自己添加的账号别名和会话数量。
 - `#抖音删除账号 账号名`：删除自己的指定账号。
@@ -41,6 +41,9 @@ pnpm --dir plugins/douyin-auto-spark exec playwright install chromium
 - `#抖音续火 账号名`：仅执行自己的指定账号。
 - `#抖音续火 全部`：仅机器人主人可用，执行所有用户账号。
 - `#抖音续火帮助`：显示简要帮助。
+- `#抖音插件更新`：仅机器人主人可用，更新抖音续火插件。
+- `#抖音插件强制更新`：仅机器人主人可用，丢弃本地插件改动后强制更新。
+- `#抖音插件更新日志`：查看抖音续火插件更新日志。
 
 定时任务默认每天 00:10 执行数据库内全部账号；可在 Guoba 或 `config/config.yaml` 修改 `schedule.cron`，设置 `schedule.enabled: false` 后会自动关闭定时任务。
 

@@ -35,10 +35,6 @@ export const accountHandlers = {
 }
 
 async function startAddAccount(e) {
-  if (!isPrivate(e)) {
-    await e.reply('为保护 Cookie，请私聊机器人发送 #抖音添加账号。')
-    return true
-  }
   try {
     await clearSetupSession(e.user_id)
     const { url, expiresMinutes } = createSetupLink({ userId: e.user_id })
