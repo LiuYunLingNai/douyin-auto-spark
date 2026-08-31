@@ -363,6 +363,7 @@ async function submitScanSmsCode(scan, code) {
     }
   }
   if (specificInput) {
+    await prepareSmsInput(specificInput)
     await specificInput.fill(code)
     const actualValue = await specificInput.evaluate((element) => element.value).catch(() => '')
     if (actualValue !== code) {
@@ -400,11 +401,25 @@ async function submitScanSmsCode(scan, code) {
   }
   codeInput ||= fallbackInput
   if (!codeInput) throw new Error('未找到短信验证码输入框，请点击刷新二维码后重试。')
+  await prepareSmsInput(codeInput)
   await codeInput.fill(code)
+  const actualValue = await codeInput.evaluate((element) => element.value).catch(() => '')
+  if (actualValue !== code) {
+    await codeInput.fill('')
+    await codeInput.pressSequentially(code)
+  }
+  const verifiedValue = await codeInput.evaluate((element) => element.value).catch(() => '')
+  if (verifiedValue !== code) throw new Error('验证码未能填入抖音页面，请重新提交。')
   const codeFrame = inputFrames[inputs.indexOf(codeInput)]
   await clickSmsSubmit(codeFrame)
   scan.smsCodeSubmitted = true
   await saveScanScreenshot(scan)
+}
+
+async function prepareSmsInput(input) {
+  await input.scrollIntoViewIfNeeded().catch(() => {})
+  await input.click({ force: true, timeout: 5000 })
+  await input.focus().catch(() => {})
 }
 
 async function clickSmsSubmit(frame) {
