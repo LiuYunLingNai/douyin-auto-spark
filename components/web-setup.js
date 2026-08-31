@@ -329,11 +329,15 @@ async function getScanStatus(token) {
 async function maybeRequestSmsVerification(scan) {
   if (scan.smsRequested || !scan.page || scan.page.isClosed()) return
   try {
-    const identity = scan.page.getByText('身份验证', { exact: false })
-    if (!await identity.isVisible().catch(() => false)) return
-    const receive = scan.page.getByText('接收短信验证码', { exact: true })
+    // 抖音会在文案中插入空格或换行，使用正则匹配并取最后一个可见选项。
+    const receive = scan.page.getByText(/^\s*接收短信验证码\s*$/).last()
     if (!await receive.isVisible().catch(() => false)) return
-    await receive.click()
+    const row = receive.locator('xpath=..')
+    if (await row.isVisible().catch(() => false)) {
+      await row.click({ force: true, timeout: 5000 })
+    } else {
+      await receive.click({ force: true, timeout: 5000 })
+    }
     scan.smsRequested = true
     logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
     await saveScanScreenshot(scan)
