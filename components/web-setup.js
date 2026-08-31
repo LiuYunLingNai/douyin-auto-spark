@@ -363,7 +363,7 @@ async function submitScanSmsCode(scan, code) {
     }
   }
   if (specificInput) {
-    await enterSmsCode(specificInput, code)
+    await enterSmsCode(specificInput, code, inputFrame)
     await saveScanScreenshot(scan)
     logger.info('[抖音续火] 已将短信验证码填入抖音页面')
     await clickSmsSubmit(inputFrame)
@@ -393,8 +393,8 @@ async function submitScanSmsCode(scan, code) {
   }
   codeInput ||= fallbackInput
   if (!codeInput) throw new Error('未找到短信验证码输入框，请点击刷新二维码后重试。')
-  await enterSmsCode(codeInput, code)
   const codeFrame = inputFrames[inputs.indexOf(codeInput)]
+  await enterSmsCode(codeInput, code, codeFrame)
   await clickSmsSubmit(codeFrame)
   scan.smsCodeSubmitted = true
   await saveScanScreenshot(scan)
@@ -406,12 +406,22 @@ async function prepareSmsInput(input) {
   await input.focus().catch(() => {})
 }
 
-async function enterSmsCode(input, code) {
+async function enterSmsCode(input, code, frame) {
   const value = String(code)
   await prepareSmsInput(input)
-  await input.press('ControlOrMeta+A').catch(() => {})
-  await input.press('Backspace').catch(() => {})
-  await input.pressSequentially(value, { delay: 80 }).catch(() => {})
+  const page = frame?.page?.()
+  const box = await input.boundingBox().catch(() => null)
+  if (page && box) {
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+    await page.waitForTimeout(150)
+    await page.keyboard.press('ControlOrMeta+A').catch(() => {})
+    await page.keyboard.press('Backspace').catch(() => {})
+    await page.keyboard.type(value, { delay: 120 }).catch(() => {})
+  } else {
+    await input.press('ControlOrMeta+A').catch(() => {})
+    await input.press('Backspace').catch(() => {})
+    await input.pressSequentially(value, { delay: 120 }).catch(() => {})
+  }
   let actualValue = await input.evaluate((element) => element.value).catch(() => '')
   if (actualValue !== value) {
     await prepareSmsInput(input)
