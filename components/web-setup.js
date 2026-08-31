@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { chromium } from 'playwright'
-import { getConfig } from './config.js'
+import { getConfig, getPluginRoot } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
 
@@ -207,11 +209,12 @@ async function startScanSession(token, { force = false } = {}) {
     await browser?.close().catch(() => {})
     throw error
   }
-  const scan = { browser, context, page, status: 'waiting', qr: '', cookies: undefined, error: undefined, startedAt: Date.now() }
+  const scan = { token, browser, context, page, status: 'waiting', qr: '', cookies: undefined, error: undefined, cookieFingerprint: '', screenshotLogged: false, startedAt: Date.now() }
   scanSessions.set(token, scan)
   try {
     await page.goto('https://www.douyin.com/chat', { waitUntil: 'domcontentloaded', timeout: 30000 })
     scan.qr = await captureDouyinQr(page)
+    await saveScanScreenshot(scan)
     return { status: scan.status, qr: scan.qr }
   } catch (error) {
     scan.status = 'error'
@@ -265,6 +268,18 @@ async function getScanStatus(token) {
     try {
       // 扫码回调可能把 Cookie 写入 passport.douyin.com 等子域，因此读取整个上下文。
       const cookies = await scan.context.cookies()
+      const fingerprint = cookies
+        .map((cookie) => `${cookie.domain}:${cookie.name}:${String(cookie.value || '').length}`)
+        .sort()
+        .join('|')
+      if (fingerprint !== scan.cookieFingerprint) {
+        scan.cookieFingerprint = fingerprint
+        if (cookies.some((cookie) => typeof cookie.domain === 'string' && /(^|\.)douyin\.com$/i.test(cookie.domain))) {
+          logger.info(`[抖音续火] 扫码会话 Cookie 已更新：${cookies.length} 条`)
+          await saveScanScreenshot(scan)
+        }
+      }
+      if (Date.now() - (scan.lastScreenshotAt || 0) >= 5000) await saveScanScreenshot(scan)
       // 未登录页面也可能存在 csrf 或空 Cookie，只把真实的非空会话 Cookie 视为登录成功。
       const hasSessionCookie = hasDouyinSessionCookie(cookies)
       if (hasSessionCookie) {
@@ -275,6 +290,7 @@ async function getScanStatus(token) {
       if (hasDouyinSessionCookie(settledCookies) || await looksLoggedInPage(scan.page, settledCookies)) {
         scan.cookies = await scan.context.cookies()
         scan.status = 'success'
+        await saveScanScreenshot(scan)
         await closeScanBrowser(scan)
       }
     } catch (error) {
@@ -292,12 +308,32 @@ async function getScanStatus(token) {
 }
 
 function hasDouyinSessionCookie(cookies) {
-  const sessionCookieNames = ['sessionid', 'sessionid_ss', 'sid_guard', 'sid_tt']
+  const sessionCookieNames = [
+    'sessionid', 'sessionid_ss', 'sid_guard', 'sid_tt',
+    'uid_tt', 'uid_tt_ss', 'passport_auth_status', 'passport_auth_status_ss',
+  ]
   return cookies.some((cookie) =>
     sessionCookieNames.includes(cookie.name)
     && typeof cookie.value === 'string'
     && cookie.value.trim().length >= 8,
   )
+}
+
+async function saveScanScreenshot(scan) {
+  if (!scan.page || scan.page.isClosed()) return
+  try {
+    const directory = path.join(getPluginRoot(), 'artifacts', 'scan')
+    const file = path.join(directory, `scan-${scan.token}.png`)
+    await fs.mkdir(directory, { recursive: true })
+    await scan.page.screenshot({ path: file, fullPage: true })
+    scan.lastScreenshotAt = Date.now()
+    if (!scan.screenshotLogged) {
+      scan.screenshotLogged = true
+      logger.info(`[抖音续火] 扫码页面截图已保存：${file}`)
+    }
+  } catch (error) {
+    logger.warn(`[抖音续火] 保存扫码页面截图失败：${error.message}`)
+  }
 }
 
 async function looksLoggedInPage(page, cookies) {
