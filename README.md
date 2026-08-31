@@ -19,7 +19,7 @@ pnpm --dir plugins/douyin-auto-spark exec playwright install chromium
 向机器人发送 `#抖音添加账号`，机器人会发送一次性网页链接。该命令可在群聊或私聊使用；修改已有账号必须私聊发送 `#抖音修改账号 账号名`。网页内填写：
 
 1. 本账号的别名。
-2. Cookie-Editor 导出的完整 Cookie JSON 数组，可直接粘贴或选择 `.txt` 文件。
+2. 点击“扫码获取 Cookie”，打开抖音聊天页中的登录二维码，用抖音 App 扫码；登录成功后 Cookie 会自动填入。若抖音触发安全验证，可改用 Cookie-Editor 导出的完整 Cookie JSON 数组，直接粘贴或选择 `.txt` 文件。
 3. 需要续火的会话名，可逐行输入或粘贴 JSON 数组。
 4. 自定义消息模板和失败通知收件邮箱。
 
