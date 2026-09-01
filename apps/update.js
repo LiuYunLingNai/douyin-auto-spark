@@ -12,17 +12,17 @@ export class DouyinIdSparkUpdate extends plugin {
       priority: 10,
       rule: [
         {
-          reg: '^#抖音ID插件更新$',
+          reg: '^#抖音插件更新$',
           fnc: 'update',
           log: false,
         },
         {
-          reg: '^#抖音ID插件强制更新$',
+          reg: '^#抖音插件强制更新$',
           fnc: 'update',
           log: false,
         },
         {
-          reg: '^#抖音ID插件更新日志$',
+          reg: '^#抖音插件更新日志$',
           fnc: 'updateLog',
           log: false,
         },
@@ -31,7 +31,7 @@ export class DouyinIdSparkUpdate extends plugin {
   }
 
   async update(e = this.e) {
-    if (!e?.isMaster) return this.reply('只有主人可以更新抖音ID续火插件')
+    if (!e?.isMaster) return this.reply('只有主人可以更新抖音续火插件')
     e.msg = `#${e.msg?.includes('强制') ? '强制' : ''}更新${PLUGIN_NAME}`
     const updater = new Update(e)
     updater.e = e
@@ -42,6 +42,6 @@ export class DouyinIdSparkUpdate extends plugin {
     const updater = new Update()
     updater.e = e
     if (await updater.getPlugin(PLUGIN_NAME)) return this.reply(await updater.getLog(PLUGIN_NAME))
-    return this.reply('未找到抖音ID续火插件 Git 仓库')
+    return this.reply('未找到抖音续火插件 Git 仓库')
   }
 }

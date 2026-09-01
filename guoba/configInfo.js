@@ -4,7 +4,7 @@ const schemas = [
   {
     field: 'schedule.enabled',
     label: '启用定时续火',
-    bottomHelpMessage: '关闭后不会按计划自动执行，仍可手动发送 #ID续火。保存后立即生效。',
+    bottomHelpMessage: '关闭后不会按计划自动执行，仍可手动发送 #抖音续火。保存后立即生效。',
     component: 'Switch',
     defaultValue: true,
   },
@@ -92,6 +92,15 @@ const schemas = [
     component: 'Textarea',
     rows: 2,
     placeholder: '留空使用内置模板',
+  },
+  {
+    field: 'im.profileFetchLimit',
+    label: '昵称补全人数上限',
+    bottomHelpMessage: '拉取会话列表时最多为多少人查询昵称和抖音号；超出的人会显示在列表中但没有昵称。调小可加快拉取速度。',
+    component: 'InputNumber',
+    min: 1,
+    max: 200,
+    defaultValue: 30,
   },
   { component: 'Divider', label: '网页账号配置' },
   {

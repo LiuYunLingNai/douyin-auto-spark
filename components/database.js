@@ -52,6 +52,7 @@ async function getDatabase() {
           sec_uid TEXT NOT NULL,
           uid TEXT NOT NULL DEFAULT '',
           nickname TEXT NOT NULL DEFAULT '',
+          unique_id TEXT NOT NULL DEFAULT '',
           conversation_id TEXT NOT NULL DEFAULT '',
           conversation_short_id TEXT NOT NULL DEFAULT '',
           ticket TEXT NOT NULL DEFAULT '',
@@ -71,6 +72,10 @@ async function getDatabase() {
       const accountColumns = rows(database, 'PRAGMA table_info(accounts)')
       if (!accountColumns.some((column) => column.name === 'self_uid')) {
         database.run("ALTER TABLE accounts ADD COLUMN self_uid TEXT NOT NULL DEFAULT ''")
+      }
+      const targetColumns = rows(database, 'PRAGMA table_info(targets)')
+      if (!targetColumns.some((column) => column.name === 'unique_id')) {
+        database.run("ALTER TABLE targets ADD COLUMN unique_id TEXT NOT NULL DEFAULT ''")
       }
       await persist(database)
       return database
@@ -279,6 +284,7 @@ function toTarget(row) {
     secUid: String(row.sec_uid),
     uid: String(row.uid || ''),
     nickname: String(row.nickname || ''),
+    uniqueId: String(row.unique_id || ''),
     conversationId: String(row.conversation_id || ''),
     conversationShortId: String(row.conversation_short_id || ''),
     ticket: String(row.ticket || ''),
@@ -296,13 +302,13 @@ export async function listTargets(accountId) {
 }
 
 /** 添加续火目标；已存在同 sec_uid 的目标时报错 */
-export async function addTarget({ accountId, secUid, uid = '', nickname = '', conversationId = '', conversationShortId = '', ticket = '' }) {
+export async function addTarget({ accountId, secUid, uid = '', nickname = '', uniqueId = '', conversationId = '', conversationShortId = '', ticket = '' }) {
   return run((database) => {
     try {
       database.run(
-        `INSERT INTO targets (account_id, sec_uid, uid, nickname, conversation_id, conversation_short_id, ticket, nickname_updated_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [Number(accountId), secUid, uid, nickname, conversationId, conversationShortId, ticket,
+        `INSERT INTO targets (account_id, sec_uid, uid, nickname, unique_id, conversation_id, conversation_short_id, ticket, nickname_updated_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [Number(accountId), secUid, uid, nickname, uniqueId, conversationId, conversationShortId, ticket,
           nickname ? new Date().toISOString() : null, new Date().toISOString()],
       )
     } catch (error) {
@@ -334,12 +340,12 @@ export async function updateTargetConversation(targetId, { uid, conversationId, 
   }, true)
 }
 
-/** 昵称变更时更新映射；返回是否有变动 */
-export async function updateTargetNickname(targetId, nickname) {
+/** 昵称/抖音号变更时更新映射；返回是否有变动 */
+export async function updateTargetProfile(targetId, { nickname, uniqueId }) {
   return run((database) => {
     database.run(
-      'UPDATE targets SET nickname = ?, nickname_updated_at = ? WHERE id = ? AND nickname != ?',
-      [nickname, new Date().toISOString(), Number(targetId), nickname],
+      'UPDATE targets SET nickname = ?, unique_id = ?, nickname_updated_at = ? WHERE id = ? AND (nickname != ? OR unique_id != ?)',
+      [nickname ?? '', uniqueId ?? '', new Date().toISOString(), Number(targetId), nickname ?? '', uniqueId ?? ''],
     )
     return database.getRowsModified() > 0
   }, true)
@@ -352,10 +358,10 @@ export async function replaceTargets(accountId, targets) {
     const now = new Date().toISOString()
     for (const target of targets) {
       database.run(
-        `INSERT INTO targets (account_id, sec_uid, uid, nickname, conversation_id, conversation_short_id, ticket, nickname_updated_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO targets (account_id, sec_uid, uid, nickname, unique_id, conversation_id, conversation_short_id, ticket, nickname_updated_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [Number(accountId), String(target.secUid), String(target.uid || ''), String(target.nickname || ''),
-          String(target.conversationId || ''), String(target.conversationShortId || ''), String(target.ticket || ''),
+          String(target.uniqueId || ''), String(target.conversationId || ''), String(target.conversationShortId || ''), String(target.ticket || ''),
           target.nickname ? now : null, now],
       )
     }

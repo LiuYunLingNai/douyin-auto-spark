@@ -28,12 +28,12 @@ function refreshScheduledSpark() {
   if (config.schedule.enabled === false) return
   const cron = normalizeCron(config.schedule.cron)
   if (!cron) {
-    logger.error('[抖音ID续火] Cron 表达式格式无效，未创建定时任务')
+    logger.error('[抖音续火] Cron 表达式格式无效，未创建定时任务')
     return
   }
   const job = schedule.scheduleJob(cron, scheduledSpark)
   if (!job) {
-    logger.error(`[抖音ID续火] Cron 表达式无效，未创建定时任务：${cron || '空'}`)
+    logger.error(`[抖音续火] Cron 表达式无效，未创建定时任务：${cron || '空'}`)
     return
   }
   scheduledJob = job
@@ -55,21 +55,21 @@ export class DouyinIdSpark extends plugin {
       event: 'message',
       priority: -5000,
       rule: [
-        { reg: '^#抖音ID添加账号$', fnc: 'startAddAccount', permission: 'all' },
-        { reg: '^#抖音ID取消添加$', fnc: 'cancelAddAccount', permission: 'all' },
-        { reg: '^#抖音ID账号列表$', fnc: 'accountList', permission: 'all' },
-        { reg: '^#抖音ID删除账号\\s+.+$', fnc: 'removeAccount', permission: 'all' },
-        { reg: '^#抖音ID修改账号\\s+.+$', fnc: 'editAccount', permission: 'all' },
-        { reg: '^#抖音ID添加好友\\s+.+$', fnc: 'addTargetByLink', permission: 'all' },
-        { reg: '^#抖音ID好友列表(?:\\s+.+)?$', fnc: 'targetList', permission: 'all' },
-        { reg: '^#抖音ID删除好友(?:\\s+.+)?$', fnc: 'removeTarget', permission: 'all' },
-        { reg: '^#抖音ID刷新昵称(?:\\s+.+)?$', fnc: 'refreshNicknames', permission: 'all' },
-        { reg: '^#抖音ID设置邮箱\\s+\\S+$', fnc: 'setEmail', permission: 'all' },
-        { reg: '^#抖音ID成功邮件开启$', fnc: 'enableSuccessEmail', permission: 'all' },
-        { reg: '^#抖音ID成功邮件关闭$', fnc: 'disableSuccessEmail', permission: 'all' },
-        { reg: '^#抖音ID清除邮箱$', fnc: 'clearEmail', permission: 'all' },
-        { reg: '^#抖音ID邮箱$', fnc: 'showEmail', permission: 'all' },
-        { reg: '^#(?:ID续火|抖音ID续火)(?:\\s*(?:帮助|.+))?$', fnc: 'spark', permission: 'all' },
+        { reg: '^#抖音添加账号$', fnc: 'startAddAccount', permission: 'all' },
+        { reg: '^#抖音取消添加$', fnc: 'cancelAddAccount', permission: 'all' },
+        { reg: '^#抖音账号列表$', fnc: 'accountList', permission: 'all' },
+        { reg: '^#抖音删除账号\\s+.+$', fnc: 'removeAccount', permission: 'all' },
+        { reg: '^#抖音修改账号\\s+.+$', fnc: 'editAccount', permission: 'all' },
+        { reg: '^#抖音添加好友(?:\\s+.+)?$', fnc: 'addTargetViaWeb', permission: 'all' },
+        { reg: '^#抖音好友列表(?:\\s+.+)?$', fnc: 'targetList', permission: 'all' },
+        { reg: '^#抖音删除好友(?:\\s+.+)?$', fnc: 'removeTarget', permission: 'all' },
+        { reg: '^#抖音刷新昵称(?:\\s+.+)?$', fnc: 'refreshNicknames', permission: 'all' },
+        { reg: '^#抖音设置邮箱\\s+\\S+$', fnc: 'setEmail', permission: 'all' },
+        { reg: '^#抖音成功邮件开启$', fnc: 'enableSuccessEmail', permission: 'all' },
+        { reg: '^#抖音成功邮件关闭$', fnc: 'disableSuccessEmail', permission: 'all' },
+        { reg: '^#抖音清除邮箱$', fnc: 'clearEmail', permission: 'all' },
+        { reg: '^#抖音邮箱$', fnc: 'showEmail', permission: 'all' },
+        { reg: '^#(?:抖音)?续火(?:\\s*(?:帮助|.+))?$', fnc: 'spark', permission: 'all' },
         { event: 'message.private', reg: '.*', fnc: 'setupFile', permission: 'all', log: false },
         { reg: '^(?!#)[\\s\\S]+$', fnc: 'setupInput', permission: 'all', log: false },
       ],

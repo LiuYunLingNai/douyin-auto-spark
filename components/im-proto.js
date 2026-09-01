@@ -65,46 +65,80 @@ message GetByUserInitQuery {
   int64 count = 2;
 }
 
-message MessagesPerUserInitV2Body {
-  repeated InitMessage messages = 1;
-  repeated InitConversation conversations = 2;
-  int64 per_user_cursor = 3;
-  int64 next_cursor = 4;
-  bool has_more = 5;
+// ===== get_message_by_init（会话列表）真实协议，2026-09 抓包自 douyin.com/chat =====
+// 请求信封：cmd=2043、sdk_version="0.1.8"、build_number="0d50935:feat/pc-im-group"、
+// auth_type=1、field14="360000"、token 为空，无 ts_sign/sdk_cert/request_sign
+message DyInitRequest {
+  int32 cmd = 1;                    // 2043
+  int32 sequence_id = 2;            // 10001 起递增
+  string sdk_version = 3;           // "0.1.8"
+  string token = 4;                 // 空
+  int32 refer = 5;                  // 3
+  int32 inbox_type = 6;             // 1
+  string build_number = 7;          // "0d50935:feat/pc-im-group"
+  InitBody body = 8;
+  string device_id = 9;             // "0"
+  string device_platform = 11;      // "douyin_pc"
+  string session_ttl = 14;          // "360000"
+  repeated HeaderField headers = 15;
+  int32 auth_type = 18;             // 1
+  string biz = 21;                  // "douyin_web"
+  string access = 22;               // "web_sdk"
 }
 
-message InitMessage {
-  string conversation_id = 1;
-  int32 conversation_type = 2;
-  int64 server_message_id = 3;
-  int64 create_time = 4;
-  int64 conversation_short_id = 5;
-  int32 message_type = 6;
-  int64 sender = 7;
-  string content = 8;
-  string sec_sender = 9;
+message InitBody {
+  InitQuery query = 2043;
 }
 
-message InitConversation {
-  string conversation_id = 1;
-  int64 conversation_short_id = 2;
-  int32 conversation_type = 3;
-  string ticket = 4;
-  int32 participants_count = 5;
-  bool is_participant = 6;
+message InitQuery {
+  int64 cursor = 1;      // 翻页时为响应里的 next_cursor
+  int64 page_flag = 2;   // 首页 0，翻页 1
 }
 
-message GetByUserInitResponse {
-  int32 code = 1;
-  int32 sub_code = 2;
+message DyInitResponse {
+  int32 cmd = 1;
+  int32 sequence_id = 2;
   int32 error_code = 3;
-  string status = 4;
+  string status = 4;               // "OK"
   int32 version = 5;
-  MessagesPerUserInitV2Body data = 6;
-  string trace_id = 7;
+  InitPayload data = 6;
+  string request_id = 7;
   int64 timestamp = 10;
   int64 server_time = 11;
-  int64 user_id = 13;
+  int64 user_id = 13;              // 自己的 uid
+}
+
+message InitPayload {
+  InitData data = 2043;
+}
+
+message InitData {
+  repeated ConvBlock blocks = 1;
+  int64 has_more = 2;              // 1=还有下一页
+  int64 next_cursor = 3;           // 翻页游标
+}
+
+message ConvBlock {
+  ConvInfo info = 1;
+  // 2: 该会话的最近消息（不需要，解析时跳过）
+}
+
+message ConvInfo {
+  string conversation_id = 1;      // "0:1:uidA:uidB"
+  int64 conversation_short_id = 2;
+  int32 conversation_type = 3;     // 1=单聊
+  string ticket = 4;
+  ParticipantList participants = 6;
+  int32 participants_count = 7;
+}
+
+message ParticipantList {
+  repeated Participant user = 1;
+}
+
+message Participant {
+  int64 user_id = 1;
+  string sec_uid = 5;
 }
 
 message DySendMsgResponse {
@@ -146,7 +180,8 @@ message MessageInfo {
 const root = protobuf.parse(PROTO, { keepCase: true }).root
 const SendMsgRequest = root.lookupType('DySendMsgRequest')
 const SendMsgResponse = root.lookupType('DySendMsgResponse')
-const GetByUserInitResponse = root.lookupType('GetByUserInitResponse')
+const InitRequest = root.lookupType('DyInitRequest')
+const InitResponse = root.lookupType('DyInitResponse')
 
 function decodeTemplate(templateB64) {
   return SendMsgRequest.toObject(SendMsgRequest.decode(Buffer.from(templateB64, 'base64')), {
@@ -240,37 +275,75 @@ export function parseImResponse(bytes) {
 }
 
 /**
- * 构造拉取会话列表（get_by_user_init）的 protobuf 请求体。
- * envelope 复用 message/send 抓包模板（同一 Web SDK 的长效设备凭据），仅 patch cmd/body。
+ * 构造拉取会话列表（get_message_by_init）的 protobuf 请求体。
+ * 协议为 2026-09 抓包所得，字段简单（无签名凭据），直接从零构造，不依赖抓包模板。
  * @param {object} options
- * @param {string|number} options.cursor 分页游标（int64 字符串），首页 '0'
- * @param {number} [options.count=20] 每页数量
- * @param {string} [options.templateB64] 可选自定义 envelope 模板（config.im.getByUserInitTemplateB64）
+ * @param {string|number} options.cursor 分页游标（首页 '0'，翻页用响应的 next_cursor）
+ * @param {string|number} [options.sequenceId=10001] 请求序号
  * @returns {Buffer}
  */
-export function buildGetByUserInitBody({ cursor, count = 20, templateB64 }) {
-  const request = decodeTemplate(templateB64 || TEXT_MESSAGE_TEMPLATE)
-  request.cmd = 203
-  request.sequence_id = 10000 + Math.floor(Math.random() * 50000)
-  const body = request.send_message_body ?? {}
-  // 抓包模板是 message/send 流量，body 里残留的 send_message_content / create_session_request
-  // 属于别的接口的业务字段（还带固定 client_message_id），发出前剔除，避免风控指纹
-  delete body.send_message_content
-  delete body.create_session_request
-  body.get_by_user_init_query = { cursor: String(cursor ?? '0'), count: Number(count) || 20 }
-  request.send_message_body = body
-  return encodeRequest(request)
+export function buildGetByUserInitBody({ cursor, sequenceId = 10001 } = {}) {
+  const isFirstPage = !cursor || String(cursor) === '0'
+  const request = {
+    cmd: 2043,
+    sequence_id: Number(sequenceId),
+    sdk_version: '0.1.8',
+    token: '',
+    refer: 3,
+    inbox_type: 1,
+    build_number: '0d50935:feat/pc-im-group',
+    body: {
+      query: isFirstPage
+        ? { page_flag: '0' }
+        : { cursor: String(cursor), page_flag: '1' },
+    },
+    device_id: '0',
+    device_platform: 'douyin_pc',
+    session_ttl: '360000',
+    headers: buildInitHeaders(),
+    auth_type: 1,
+    biz: 'douyin_web',
+    access: 'web_sdk',
+  }
+  return Buffer.from(InitRequest.encode(InitRequest.fromObject(request)).finish())
 }
 
+// 与抓包一致的 header 指纹（user_agent 与 HTTP 头、签名 UA 保持一致）
+function buildInitHeaders() {
+  const pairs = [
+    ['session_aid', '6383'],
+    ['session_did', '0'],
+    ['app_name', 'douyin_pc'],
+    ['priority_region', 'cn'],
+    ['user_agent', IM_USER_AGENT],
+    ['cookie_enabled', 'true'],
+    ['browser_language', 'zh-CN'],
+    ['browser_platform', 'MacIntel'],
+    ['browser_name', 'Mozilla'],
+    ['browser_version', `5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36`],
+    ['browser_online', 'true'],
+    ['screen_width', '3440'],
+    ['screen_height', '1440'],
+    ['referer', ''],
+    ['timezone_name', 'Asia/Shanghai'],
+    ['deviceId', '0'],
+    ['is-retry', '0'],
+  ]
+  return pairs.map(([key, value]) => ({ field_name: key, field_value: value }))
+}
+
+// 与 douyin-api.js 的 USER_AGENT 保持一致（IM 请求内嵌指纹）
+const IM_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+
 /**
- * 解析 get_by_user_init 响应。
+ * 解析 get_message_by_init 响应。
  * @param {Buffer|Uint8Array} bytes
- * @returns {{ status: string, errorCode: number, selfUid: string, hasMore: boolean, perUserCursor: string,
- *   conversations: Array<{conversationId: string, conversationShortId: string, conversationType: number, ticket: string, participantsCount: number}>,
- *   messages: Array<{conversationId: string, sender: string, secSender: string, createTime: string, serverMessageId: string}> }}
+ * @returns {{ status: string, errorCode: number, selfUid: string, hasMore: boolean, nextCursor: string,
+ *   conversations: Array<{conversationId: string, conversationShortId: string, conversationType: number,
+ *   ticket: string, participantsCount: number, participants: Array<{uid: string, secUid: string}>}> }}
  */
 export function parseGetByUserInitResponse(bytes) {
-  const response = GetByUserInitResponse.toObject(GetByUserInitResponse.decode(bytes), {
+  const response = InitResponse.toObject(InitResponse.decode(bytes), {
     longs: String,
     defaults: false,
   })
@@ -278,26 +351,29 @@ export function parseGetByUserInitResponse(bytes) {
   if (status !== 'OK') {
     throw new Error(status || `状态码 ${response.error_code ?? '未知'}`)
   }
-  const data = response.data ?? {}
+  const data = response.data?.data ?? {}
+  const conversations = []
+  for (const block of data.blocks ?? []) {
+    const info = block.info
+    if (!info?.conversation_id) continue
+    conversations.push({
+      conversationId: String(info.conversation_id),
+      conversationShortId: String(info.conversation_short_id ?? ''),
+      conversationType: Number(info.conversation_type ?? 0),
+      ticket: String(info.ticket ?? ''),
+      participantsCount: Number(info.participants_count ?? 0),
+      participants: (info.participants?.user ?? []).map((user) => ({
+        uid: String(user.user_id ?? ''),
+        secUid: String(user.sec_uid ?? ''),
+      })),
+    })
+  }
   return {
     status,
     errorCode: Number(response.error_code ?? 0),
-    selfUid: response.user_id ?? '',
-    hasMore: Boolean(data.has_more),
-    perUserCursor: data.per_user_cursor ?? '',
-    conversations: (data.conversations ?? []).map((item) => ({
-      conversationId: String(item.conversation_id ?? ''),
-      conversationShortId: String(item.conversation_short_id ?? ''),
-      conversationType: Number(item.conversation_type ?? 0),
-      ticket: String(item.ticket ?? ''),
-      participantsCount: Number(item.participants_count ?? 0),
-    })),
-    messages: (data.messages ?? []).map((item) => ({
-      conversationId: String(item.conversation_id ?? ''),
-      sender: String(item.sender ?? ''),
-      secSender: String(item.sec_sender ?? ''),
-      createTime: String(item.create_time ?? '0'),
-      serverMessageId: String(item.server_message_id ?? ''),
-    })),
+    selfUid: String(response.user_id ?? ''),
+    hasMore: Number(data.has_more ?? 0) === 1,
+    nextCursor: String(data.next_cursor ?? ''),
+    conversations,
   }
 }

@@ -1,34 +1,63 @@
-// 续火目标（好友）管理：分享链接解析 sec_uid，前台展示昵称，后台按 ID 寻址
+// 续火目标（好友）管理：查看 ID↔昵称 映射、删除、刷新昵称
+// 目标的添加在添加/修改账号的网页中完成（拉取会话列表点选）
 import {
-  addTarget,
   deleteTarget,
   listAccounts,
   listTargets,
-  updateTargetNickname,
+  updateTargetProfile,
 } from '../components/database.js'
 import {
-  DouyinApiError,
   buildCookieHeader,
   fetchUserProfile,
   getCookieValue,
-  resolveShareLink,
 } from '../components/douyin-api.js'
 
+import {
+  bindSetupMessage,
+  createSetupLink,
+} from '../components/web-setup.js'
+
 export const targetHandlers = {
-  addTargetByLink,
   targetList,
   removeTarget,
   refreshNicknames,
+  addTargetViaWeb,
+}
+
+/** #抖音添加好友 [账号名]：发送一次性网页链接，重新拉取会话列表勾选新增目标（Cookie 有效无需重扫） */
+async function addTargetViaWeb(e) {
+  const name = String(e.msg).replace(/^#抖音添加好友\s*/, '').trim()
+  const account = await findAccount(e, name)
+  if (!account) return true
+  try {
+    const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id, accountId: account.id })
+    const sent = await e.reply([
+      `请在 ${expiresMinutes} 分钟内打开链接为账号“${account.name}”增删续火目标：`,
+      url,
+      '打开后点击「拉取会话列表」，勾选新人后提交即可；已勾选的目标保持不变，Cookie 未过期无需重新扫码。',
+    ].join('\n'))
+    bindSetupMessage(token, e, sent?.message_id)
+  } catch (error) {
+    logger.error('[抖音续火] 创建好友添加链接失败', error)
+    await e.reply(`创建网页链接失败：${error.message}`)
+  }
+  return true
 }
 
 function shortId(secUid) {
   return secUid.length > 16 ? `${secUid.slice(0, 12)}…${secUid.slice(-4)}` : secUid
 }
 
+/** 前台展示用：昵称 + 抖音号（若有）；sec_uid 为内部寻址字段，不对用户展示 */
+function displayTarget(target) {
+  const name = target.nickname || '（未获取昵称）'
+  return target.uniqueId ? `${name}（抖音号: ${target.uniqueId}）` : name
+}
+
 async function findAccount(e, name) {
   const accounts = await listAccounts(e.user_id)
   if (accounts.length === 0) {
-    await e.reply('你还没有添加账号，请私聊机器人发送 #抖音ID添加账号。')
+    await e.reply('你还没有添加账号，请私聊机器人发送 #抖音添加账号。')
     return undefined
   }
   const account = name ? accounts.find((item) => item.name === name) : accounts[0]
@@ -43,66 +72,9 @@ async function findAccount(e, name) {
   return account
 }
 
-/** #抖音ID添加好友 [账号名] <分享口令或链接> */
-async function addTargetByLink(e) {
-  const rest = String(e.msg).replace(/^#抖音ID添加好友\s*/, '').trim()
-  if (!rest) {
-    await e.reply('用法：#抖音ID添加好友 [账号名] <分享口令或主页链接>\n例如：#抖音ID添加好友 主号 4.64 复制打开抖音… https://v.douyin.com/xxxx/')
-    return true
-  }
-
-  const accounts = await listAccounts(e.user_id)
-  if (accounts.length === 0) {
-    await e.reply('你还没有添加账号，请私聊机器人发送 #抖音ID添加账号。')
-    return true
-  }
-
-  // 第一个词若能匹配账号名则视为账号名，否则使用唯一账号
-  let account
-  let linkText = rest
-  const [firstToken, ...restTokens] = rest.split(/\s+/)
-  if (accounts.some((item) => item.name === firstToken)) {
-    account = accounts.find((item) => item.name === firstToken)
-    linkText = restTokens.join(' ')
-  } else if (accounts.length === 1) {
-    account = accounts[0]
-  } else {
-    await e.reply(`你有多个账号，请先指定账号名：\n#抖音ID添加好友 账号名 <分享链接>\n可用账号：${accounts.map((item) => item.name).join('、')}`)
-    return true
-  }
-  if (!linkText) {
-    await e.reply('请同时提供对方的分享口令或主页链接。')
-    return true
-  }
-
-  try {
-    await e.reply('正在解析分享链接…')
-    const secUid = await resolveShareLink(linkText)
-    const cookieHeader = buildCookieHeader(account.cookies)
-    const profile = await fetchUserProfile(cookieHeader, secUid, {
-      webid: getCookieValue(account.cookies, 's_v_web_id'),
-      uifid: getCookieValue(account.cookies, 'UIFID'),
-    })
-    await addTarget({
-      accountId: account.id,
-      secUid,
-      uid: profile.uid,
-      nickname: profile.nickname,
-    })
-    await e.reply(`已添加续火目标：${profile.nickname || '（未获取到昵称）'}（ID: ${shortId(secUid)}）\n账号“${account.name}”后续续火将按 ID 发送，对方改名不影响送达。`)
-  } catch (error) {
-    if (error instanceof DouyinApiError && error.kind === 'auth') {
-      await e.reply(`添加失败：${error.message}\n请通过 #抖音ID修改账号 更新 Cookie 后重试。`)
-    } else {
-      await e.reply(`添加失败：${error.message}`)
-    }
-  }
-  return true
-}
-
-/** #抖音ID好友列表 [账号名]：展示映射并现场刷新昵称 */
+/** #抖音好友列表 [账号名]：展示映射并现场刷新昵称 */
 async function targetList(e) {
-  const name = String(e.msg).replace(/^#抖音ID好友列表\s*/, '').trim()
+  const name = String(e.msg).replace(/^#抖音好友列表\s*/, '').trim()
   const accounts = await listAccounts(e.user_id)
   const selected = name ? accounts.filter((item) => item.name === name) : accounts
   if (selected.length === 0) {
@@ -115,35 +87,40 @@ async function targetList(e) {
     const targets = await listTargets(account.id)
     lines.push(`【${account.name}】共 ${targets.length} 个续火目标`)
     if (targets.length === 0) {
-      lines.push('  （空，发送 #抖音ID添加好友 添加）')
+      lines.push('  （空，发送 #抖音修改账号 在网页中拉取会话列表选择）')
       continue
     }
     const cookieHeader = buildCookieHeader(account.cookies)
     const webid = getCookieValue(account.cookies, 's_v_web_id')
     const uifid = getCookieValue(account.cookies, 'UIFID')
     for (const [index, target] of targets.entries()) {
-      let display = target.nickname || '（未获取昵称）'
+      let shown = { ...target }
       let suffix = ''
       try {
         const profile = await fetchUserProfile(cookieHeader, target.secUid, { webid, uifid })
         if (profile.nickname && profile.nickname !== target.nickname) {
           suffix = `（已改名：${target.nickname || '未知'} → ${profile.nickname}）`
-          display = profile.nickname
-          await updateTargetNickname(target.id, profile.nickname)
         }
+        if ((profile.nickname && profile.nickname !== target.nickname) || (profile.uniqueId && profile.uniqueId !== target.uniqueId)) {
+          await updateTargetProfile(target.id, {
+            nickname: profile.nickname || target.nickname,
+            uniqueId: profile.uniqueId || target.uniqueId,
+          })
+        }
+        shown = { ...target, nickname: profile.nickname || target.nickname, uniqueId: profile.uniqueId || target.uniqueId }
       } catch {
         suffix = '（昵称刷新失败）'
       }
-      lines.push(`  ${index + 1}. ${display}（ID: ${shortId(target.secUid)}）${suffix}`)
+      lines.push(`  ${index + 1}. ${displayTarget(shown)}${suffix}`)
     }
   }
   await e.reply(lines.join('\n'))
   return true
 }
 
-/** #抖音ID删除好友 [账号名] <序号> */
+/** #抖音删除好友 [账号名] <序号> */
 async function removeTarget(e) {
-  const rest = String(e.msg).replace(/^#抖音ID删除好友\s*/, '').trim()
+  const rest = String(e.msg).replace(/^#抖音删除好友\s*/, '').trim()
   const tokens = rest.split(/\s+/).filter(Boolean)
   let name = ''
   let indexText = tokens[0] || ''
@@ -157,7 +134,7 @@ async function removeTarget(e) {
 
   const index = Number(indexText)
   if (!Number.isInteger(index) || index < 1) {
-    await e.reply('用法：#抖音ID删除好友 [账号名] <序号>\n序号可通过 #抖音ID好友列表 查看。')
+    await e.reply('用法：#抖音删除好友 [账号名] <序号>\n序号可通过 #抖音好友列表 查看。')
     return true
   }
   const targets = await listTargets(account.id)
@@ -167,13 +144,13 @@ async function removeTarget(e) {
     return true
   }
   await deleteTarget(account.id, target.id)
-  await e.reply(`已删除续火目标：${target.nickname || '（未知昵称）'}（ID: ${shortId(target.secUid)}）`)
+  await e.reply(`已删除续火目标：${displayTarget(target)}`)
   return true
 }
 
-/** #抖音ID刷新昵称 [账号名]：批量刷新 ID->昵称 映射 */
+/** #抖音刷新昵称 [账号名]：批量刷新 ID->昵称 映射 */
 async function refreshNicknames(e) {
-  const name = String(e.msg).replace(/^#抖音ID刷新昵称\s*/, '').trim()
+  const name = String(e.msg).replace(/^#抖音刷新昵称\s*/, '').trim()
   const account = await findAccount(e, name)
   if (!account) return true
 
@@ -192,7 +169,7 @@ async function refreshNicknames(e) {
     try {
       const profile = await fetchUserProfile(cookieHeader, target.secUid, { webid, uifid })
       if (profile.nickname && profile.nickname !== target.nickname) {
-        await updateTargetNickname(target.id, profile.nickname)
+        await updateTargetProfile(target.id, { nickname: profile.nickname, uniqueId: profile.uniqueId })
         changes.push(`${target.nickname || '（未知）'} → ${profile.nickname}`)
       }
     } catch (error) {

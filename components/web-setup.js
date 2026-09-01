@@ -6,7 +6,7 @@ import { chromium } from 'playwright'
 import { getBrowserLaunchOptions, getConfig, getPluginRoot } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, listTargets, replaceTargets, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, validateTemplate } from './account-setup.js'
-import { scanConversations } from './conversation-scan.js'
+import { listConversations } from './conversation-api.js'
 
 const mountedRoutePrefix = '/douyin-id-spark'
 const standaloneRoutePrefix = '/douyin-id-spark'
@@ -76,7 +76,7 @@ async function recallBoundSetupMessage(session) {
     return true
   } catch (error) {
     session.messageRecalled = false
-    logger.warn(`[抖音ID续火] 撤回网页链接消息失败：${error.message}`)
+    logger.warn(`[抖音续火] 撤回网页链接消息失败：${error.message}`)
     return false
   }
 }
@@ -139,17 +139,17 @@ function registerMountedRoutes() {
 function startStandaloneServer() {
   standaloneServer = createServer((req, res) => {
     handleStandaloneRequest(req, res).catch((error) => {
-      logger.error('[抖音ID续火] 独立网页服务请求失败', error)
+      logger.error('[抖音续火] 独立网页服务请求失败', error)
       sendJson(res, 500, { ok: false, message: '服务器内部错误。' })
     })
   })
   standaloneServer.once('error', (error) => {
     standaloneError = error
-    logger.error('[抖音ID续火] 独立网页服务启动失败', error)
+    logger.error('[抖音续火] 独立网页服务启动失败', error)
   })
   standaloneServer.listen(webState.port)
   standaloneServer.unref()
-  logger.mark(`[抖音ID续火] 独立网页服务已启动，端口 ${webState.port}`)
+  logger.mark(`[抖音续火] 独立网页服务已启动，端口 ${webState.port}`)
 }
 
 async function handleStandaloneRequest(req, res) {
@@ -180,7 +180,7 @@ async function handleSetupPage(token, res) {
     const initial = await getInitialValues(session)
     sendHtml(res, 200, renderSetupPage(token, initial, session.accountId !== undefined))
   } catch (error) {
-    logger.error('[抖音ID续火] 读取网页配置失败', error)
+    logger.error('[抖音续火] 读取网页配置失败', error)
     sendHtml(res, 500, renderMessagePage('读取配置失败，请重新发送命令。'))
   }
 }
@@ -219,8 +219,8 @@ async function handleConversationScan(token, body, res) {
   if (!session) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
   try {
     const cookies = await resolveSessionCookies(session, body?.cookieText)
-    const list = await scanConversations(cookies, {
-      onProgress: (message) => logger.info(`[抖音续火] 会话扫描：${message}`),
+    const list = await listConversations(cookies, {
+      onProgress: (message) => logger.info(`[抖音续火] 会话拉取：${message}`),
     })
     sendJson(res, 200, { ok: true, list })
   } catch (error) {
@@ -236,7 +236,7 @@ async function handleScanStart(token, res) {
     const result = await startScanSession(token)
     sendJson(res, 200, { ok: true, ...result })
   } catch (error) {
-    logger.error('[抖音ID续火] 启动扫码登录失败', error)
+    logger.error('[抖音续火] 启动扫码登录失败', error)
     sendJson(res, 400, { ok: false, message: error.message || '启动扫码登录失败。' })
   }
 }
@@ -248,7 +248,7 @@ async function handleScanRefresh(token, res) {
     const result = await startScanSession(token, { force: true })
     sendJson(res, 200, { ok: true, ...result })
   } catch (error) {
-    logger.error('[抖音ID续火] 刷新扫码二维码失败', error)
+    logger.error('[抖音续火] 刷新扫码二维码失败', error)
     sendJson(res, 400, { ok: false, message: error.message || '刷新二维码失败。' })
   }
 }
@@ -374,7 +374,7 @@ async function getScanStatus(token) {
       if (fingerprint !== scan.cookieFingerprint) {
         scan.cookieFingerprint = fingerprint
         if (cookies.some((cookie) => typeof cookie.domain === 'string' && /(^|\.)douyin\.com$/i.test(cookie.domain))) {
-          logger.info(`[抖音ID续火] 扫码会话 Cookie 已更新：${cookies.length} 条`)
+          logger.info(`[抖音续火] 扫码会话 Cookie 已更新：${cookies.length} 条`)
           await saveScanScreenshot(scan)
         }
       }
@@ -421,12 +421,12 @@ async function maybeRequestSmsVerification(scan) {
         await receive.click({ force: true, timeout: 5000 })
       }
       scan.smsRequested = true
-      logger.info('[抖音ID续火] 已自动点击接收短信验证码，等待用户输入验证码')
+      logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
       await saveScanScreenshot(scan)
       return
     }
   } catch (error) {
-    logger.warn(`[抖音ID续火] 自动点击接收短信验证码失败：${error.message}`)
+    logger.warn(`[抖音续火] 自动点击接收短信验证码失败：${error.message}`)
   }
 }
 
@@ -458,7 +458,7 @@ async function submitScanSmsCode(scan, code) {
   }
   if (actualValue !== String(code)) throw new Error('验证码未能填入抖音页面，请重新提交。')
   await saveScanScreenshot(scan)
-  logger.info('[抖音ID续火] 已将短信验证码填入抖音页面')
+  logger.info('[抖音续火] 已将短信验证码填入抖音页面')
   await clickSmsSubmit(inputFrame)
   scan.smsCodeSubmitted = true
   await saveScanScreenshot(scan)
@@ -500,10 +500,10 @@ async function saveScanScreenshot(scan) {
     scan.lastScreenshotAt = Date.now()
     if (!scan.screenshotLogged) {
       scan.screenshotLogged = true
-      logger.info('[抖音ID续火] 扫码页面截图已更新')
+      logger.info('[抖音续火] 扫码页面截图已更新')
     }
   } catch (error) {
-    logger.warn(`[抖音ID续火] 保存扫码页面截图失败：${error.message}`)
+    logger.warn(`[抖音续火] 保存扫码页面截图失败：${error.message}`)
   }
 }
 
@@ -602,6 +602,7 @@ async function getInitialValues(session) {
   const targets = (await listTargets(account.id)).map((target) => ({
     secUid: target.secUid,
     nickname: target.nickname,
+    uniqueId: target.uniqueId,
   }))
   return {
     name: account.name,
@@ -626,12 +627,29 @@ async function saveWebSetup(session, body) {
   if (successEmailEnabled && !email) throw new Error('开启成功邮件通知前，请先填写收件邮箱')
 
   const cookieText = String(body.cookieText || '').trim()
+  // 续火目标（网页点选）：{secUid, uid, nickname, conversationId, conversationShortId, ticket} 数组；非数组则视为未改动目标选择，不触碰现有目标
+  const hasTargets = Array.isArray(body.targets)
+  const targets = hasTargets
+    ? body.targets
+        .filter((item) => item && typeof item.secUid === 'string' && /^MS4w[\w-]{10,}$/.test(item.secUid))
+        .map((item) => ({
+          secUid: String(item.secUid),
+          uid: String(item.uid || ''),
+          nickname: String(item.nickname || '').slice(0, 60),
+          uniqueId: String(item.uniqueId || '').slice(0, 60),
+          conversationId: String(item.conversationId || ''),
+          conversationShortId: String(item.conversationShortId || ''),
+          ticket: String(item.ticket || ''),
+        }))
+    : []
+  void targets
   let ignored = 0
+  let accountId = session.accountId
   if (session.accountId === undefined) {
     if (!cookieText) throw new Error('请粘贴 Cookie JSON 或选择 .txt 文件')
     const parsed = parseCookies(cookieText)
     ignored = parsed.ignored
-    await addAccount({ userId: session.userId, name, cookies: parsed.cookies, targetNames: [], messageTemplate })
+    accountId = await addAccount({ userId: session.userId, name, cookies: parsed.cookies, targetNames: [], messageTemplate })
   } else {
     const account = (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
     if (!account) throw new Error('账号不存在，请重新发送修改命令')
@@ -646,9 +664,10 @@ async function saveWebSetup(session, body) {
       messageTemplate,
     })
   }
+  if (hasTargets) await replaceTargets(accountId, targets)
   await setUserEmail(session.userId, email)
   await setUserSuccessEmailEnabled(session.userId, successEmailEnabled)
-  return `${session.accountId === undefined ? '账号已添加' : '账号已更新'}${ignored ? `，已忽略 ${ignored} 条无法使用的 Cookie` : ''}。现在可以关闭此页面。`
+  return `${session.accountId === undefined ? '账号已添加' : '账号已更新'}${ignored ? `，已忽略 ${ignored} 条无法使用的 Cookie` : ''}${hasTargets ? `，已保存 ${targets.length} 个续火目标` : ''}。现在可以关闭此页面。`
 }
 
 function renderSetupPage(token, initial, editing) {
@@ -680,6 +699,11 @@ function renderSetupPage(token, initial, editing) {
     button { justify-self: start; border: 0; border-radius: 5px; padding: 11px 20px; background: #1976b7; color: #fff; font: inherit; cursor: pointer; }
     button:disabled { cursor: wait; opacity: .65; }
     .scan { display: grid; gap: 8px; padding: 12px; border: 1px solid #d7dee8; border-radius: 5px; background: #f8fafc; }
+    .targets { display: grid; gap: 8px; padding: 12px; border: 1px solid #d7dee8; border-radius: 5px; background: #f8fafc; font-size: 14px; }
+    .conv-list { display: grid; gap: 4px; max-height: 280px; overflow-y: auto; }
+    .conv-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #e4eaf1; border-radius: 4px; background: #fff; font-weight: 400; }
+    .conv-item input { width: 16px; height: 16px; }
+    .conv-item .uid { color: #98a2b3; font-size: 11px; margin-left: auto; }
     .scan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .scan button { justify-self: start; }
     .qr { display: none; width: min(360px, 100%); max-height: 360px; object-fit: contain; border: 1px solid #d7dee8; background: #fff; }
@@ -694,7 +718,15 @@ function renderSetupPage(token, initial, editing) {
     <header><h1>${title}</h1></header>
     <form id="setup-form">
       <label>账号名称<input id="name" maxlength="40" required></label>
-      <label>消息模板<textarea id="messageTemplate" placeholder="留空使用随机一言"></textarea><span class="hint">续火目标通过机器人命令 #抖音ID添加好友 按分享链接添加。</span></label>
+      <label>消息模板<textarea id="messageTemplate" placeholder="留空使用随机一言"></textarea></label>
+      <div class="targets">
+        <span class="hint">续火目标：点击下方按钮，通过接口读取私信会话里出现过的人，勾选后保存（按用户 ID 发送，对方改名不影响送达）。</span>
+        <div class="scan-actions">
+          <button id="loadConvs" type="button">拉取会话列表</button>
+        </div>
+        <span id="convStatus" class="hint">拉取需要 10 到 60 秒（含昵称查询），请耐心等待。</span>
+        <div id="convList" class="conv-list"></div>
+      </div>
       <label>失败通知邮箱<input id="email" type="email" placeholder="留空则不发送失败邮件"></label>
       <label class="check"><input id="successEmailEnabled" type="checkbox">续火成功时发送邮件通知</label>
       <label>Cookie 文本文件<input id="cookieFile" type="file" accept=".txt,text/plain"><span class="hint">选择后会读取到下方文本框，不会上传文件本身。</span></label>
@@ -730,6 +762,67 @@ function renderSetupPage(token, initial, editing) {
     let scanTimer;
     for (const key of ['name', 'messageTemplate', 'email']) document.querySelector('#' + key).value = initial[key] || '';
     document.querySelector('#successEmailEnabled').checked = Boolean(initial.successEmailEnabled);
+
+    // ===== 续火目标选择 =====
+    const loadConvs = document.querySelector('#loadConvs');
+    const convStatus = document.querySelector('#convStatus');
+    const convList = document.querySelector('#convList');
+    const knownTargets = new Map(); // secUid -> {secUid, uid, nickname, conversationId, conversationShortId, ticket, checked}
+    function renderTargets() {
+      convList.innerHTML = '';
+      for (const target of knownTargets.values()) {
+        const item = document.createElement('label');
+        item.className = 'conv-item';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = target.checked;
+        box.addEventListener('change', () => { target.checked = box.checked; });
+        const name = document.createElement('span');
+        name.textContent = target.nickname || '（昵称未获取）';
+        item.append(box, name);
+        if (target.uniqueId) {
+          const uid = document.createElement('span');
+          uid.className = 'uid';
+          uid.textContent = '抖音号: ' + target.uniqueId;
+          item.append(uid);
+        }
+        convList.append(item);
+      }
+      const total = knownTargets.size;
+      const chosen = [...knownTargets.values()].filter(item => item.checked).length;
+      if (total > 0) convStatus.textContent = '共 ' + total + ' 人，已勾选 ' + chosen + ' 人；保存后生效。';
+    }
+    for (const target of initial.targets || []) {
+      knownTargets.set(target.secUid, { ...target, checked: true });
+    }
+    renderTargets();
+    loadConvs.addEventListener('click', async () => {
+      loadConvs.disabled = true;
+      convStatus.textContent = '正在通过接口拉取会话列表，可能需要 10 到 60 秒…';
+      try {
+        const response = await fetch('${webState.prefix}/api/conversations/${token}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookieText: document.querySelector('#cookieText').value }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.message || '拉取会话列表失败');
+        let added = 0;
+        for (const person of data.list || []) {
+          if (!knownTargets.has(person.secUid)) {
+            knownTargets.set(person.secUid, { ...person, checked: false });
+            added += 1;
+          }
+        }
+        renderTargets();
+        convStatus.textContent = '拉取完成：会话共 ' + ((data.list || []).length) + ' 人，新增 ' + added + ' 人待勾选（已勾选的保持不变）。';
+      } catch (error) {
+        convStatus.textContent = error.message || '拉取会话列表失败';
+      } finally {
+        loadConvs.disabled = false;
+      }
+    });
+
     document.querySelector('#cookieFile').addEventListener('change', async event => {
       const file = event.target.files[0];
       if (!file) return;
@@ -807,6 +900,7 @@ function renderSetupPage(token, initial, editing) {
       const payload = Object.fromEntries(new FormData(form));
       payload.name = document.querySelector('#name').value;
       payload.messageTemplate = document.querySelector('#messageTemplate').value;
+      payload.targets = [...knownTargets.values()].filter(item => item.checked).map(({ checked, ...target }) => target);
       payload.email = document.querySelector('#email').value;
       payload.successEmailEnabled = document.querySelector('#successEmailEnabled').checked;
       payload.cookieText = document.querySelector('#cookieText').value;
@@ -825,5 +919,5 @@ function renderSetupPage(token, initial, editing) {
 }
 
 function renderMessagePage(message) {
-  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>抖音ID续火</title><body><p>${message}</p></body></html>`
+  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>抖音续火</title><body><p>${message}</p></body></html>`
 }

@@ -4,27 +4,27 @@ export const sparkHandlers = { spark, scheduledSpark }
 export { scheduledSpark }
 
 async function spark(e) {
-  const argument = String(e.msg).replace(/^#(?:ID续火|抖音ID续火)/, '').trim()
+  const argument = String(e.msg).replace(/^#(?:抖音)?续火/, '').trim()
   if (argument === '帮助') {
     await e.reply([
-      '抖音ID续火命令一览',
-      '#抖音ID添加账号：发送一次性网页链接，添加一个账号（扫码或粘贴 Cookie）。',
-      '#抖音ID取消添加：取消当前添加流程。',
-      '#抖音ID账号列表：查看自己的账号别名和续火目标数量。',
-      '#抖音ID删除账号 账号名：删除指定账号及其续火目标。',
-      '#抖音ID修改账号 账号名：私聊获取指定账号的一次性修改链接。',
-      '#抖音ID添加好友 [账号名] 分享口令/链接：解析对方主页链接，按用户 ID 添加续火目标。',
-      '#抖音ID好友列表 [账号名]：查看续火目标的 ID↔昵称 映射（自动刷新昵称）。',
-      '#抖音ID删除好友 [账号名] 序号：删除指定续火目标。',
-      '#抖音ID刷新昵称 [账号名]：批量刷新目标昵称，报告改名情况。',
-      '#ID续火：执行自己全部账号。',
-      '#ID续火 账号名：仅执行自己的指定账号。',
-      '#ID续火 全部（仅主人）：执行所有用户账号。',
-      '#抖音ID设置邮箱 邮箱：私聊设置自己的失败通知收件邮箱。',
-      '#抖音ID成功邮件开启：私聊开启自己的续火成功邮件通知。',
-      '#抖音ID成功邮件关闭：私聊关闭自己的续火成功邮件通知。',
-      '#抖音ID邮箱：私聊查看当前收件邮箱。',
-      '#抖音ID清除邮箱：私聊清除收件邮箱，此后失败不发邮件。',
+      '抖音续火命令一览',
+      '#抖音添加账号：发送一次性网页链接，添加账号并在网页中点选续火目标。',
+      '#抖音取消添加：取消当前添加流程。',
+      '#抖音账号列表：查看自己添加的账号别名和续火目标数量。',
+      '#抖音删除账号 账号名：删除自己的指定账号及其续火目标。',
+      '#抖音修改账号 账号名：私聊获取修改链接，可更新 Cookie 或重选续火目标。',
+      '#抖音添加好友 [账号名]：发链接拉取会话列表勾选新增目标（Cookie 有效无需重扫）。',
+      '#抖音好友列表 [账号名]：查看续火目标的 ID↔昵称 映射（自动刷新昵称）。',
+      '#抖音删除好友 [账号名] 序号：删除指定续火目标。',
+      '#抖音刷新昵称 [账号名]：批量刷新目标昵称，报告改名情况。',
+      '#抖音续火：执行自己全部账号。',
+      '#抖音续火 账号名：仅执行自己的指定账号。',
+      '#抖音续火 全部（仅主人）：执行所有用户账号。',
+      '#抖音设置邮箱 邮箱：私聊设置自己的失败通知收件邮箱。',
+      '#抖音成功邮件开启：私聊开启自己的续火成功邮件通知。',
+      '#抖音成功邮件关闭：私聊关闭自己的续火成功邮件通知。',
+      '#抖音邮箱：私聊查看当前收件邮箱。',
+      '#抖音清除邮箱：私聊清除收件邮箱，此后失败不发邮件。',
     ].join('\n'))
     return true
   }
@@ -35,16 +35,16 @@ async function spark(e) {
     return true
   }
 
-  await e.reply('正在启动抖音ID续火，请稍候...')
+  await e.reply('正在启动抖音续火，请稍候...')
   try {
     const result = await runSpark(allUsers ? {} : { userId: e.user_id, accountName: argument || undefined })
     const renameLines = result.successes.flatMap((item) => (item.renames ?? []).map((name) => `昵称变更：${name}`))
-    const lines = [`抖音ID续火完成：成功发送 ${result.sent} 条消息。`]
+    const lines = [`抖音续火完成：成功发送 ${result.sent} 条消息。`]
     if (renameLines.length) lines.push(...renameLines)
     await e.reply(lines.join('\n'))
   } catch (error) {
-    logger.error('[抖音ID续火]', error)
-    await e.reply(`抖音ID续火失败：${error.message}`)
+    logger.error('[抖音续火]', error)
+    await e.reply(`抖音续火失败：${error.message}`)
   }
   return true
 }
@@ -53,9 +53,9 @@ async function scheduledSpark() {
   let result
   try {
     result = await runSpark()
-    logger.mark(`[抖音ID续火] 定时任务完成，发送 ${result.sent} 条消息`)
+    logger.mark(`[抖音续火] 定时任务完成，发送 ${result.sent} 条消息`)
   } catch (error) {
-    logger.error('[抖音ID续火] 定时任务失败', error)
+    logger.error('[抖音续火] 定时任务失败', error)
     result = error.result
   }
   if (result) {
@@ -94,7 +94,7 @@ async function sendScheduledResults({ successes = [], failures = [] }) {
       if (!recipient?.sendMsg) throw new Error('当前适配器不支持发送私聊消息')
       await recipient.sendMsg(lines.join('\n'))
     } catch (error) {
-      logger.warn(`[抖音ID续火] 向用户 ${userId} 发送定时结果失败`, error)
+      logger.warn(`[抖音续火] 向用户 ${userId} 发送定时结果失败`, error)
     }
   }
 }
@@ -123,6 +123,6 @@ async function sendScheduledSummaryToMasters({ sent = 0, successes = [], failure
   try {
     await globalThis.Bot.sendMasterMsg(lines.join('\n'), undefined, 0)
   } catch (error) {
-    logger.warn('[抖音ID续火] 向主人发送定时汇总失败', error)
+    logger.warn('[抖音续火] 向主人发送定时汇总失败', error)
   }
 }

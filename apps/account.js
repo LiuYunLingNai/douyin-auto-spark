@@ -45,7 +45,7 @@ async function startAddAccount(e) {
     const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接添加账号：\n${url}`)
     bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
-    logger.error('[抖音ID续火] 创建账号配置链接失败', error)
+    logger.error('[抖音续火] 创建账号配置链接失败', error)
     await e.reply(`创建网页链接失败：${error.message}`)
   }
   return true
@@ -92,13 +92,13 @@ async function setupInput(e) {
         messageTemplate,
       })
       await clearSetupSession(e.user_id)
-      await e.reply(`账号“${session.draft.name}”已添加。\n发送 #抖音ID添加好友 <分享链接> 添加续火目标；发送 #ID续火 可执行你的全部账号。`)
+      await e.reply(`账号“${session.draft.name}”已添加。\n在网页中点选续火目标后，发送 #抖音续火 可执行你的全部账号。`)
     } else {
       await clearSetupSession(e.user_id)
-      await e.reply('配置会话已失效，请重新发送 #抖音ID添加账号。')
+      await e.reply('配置会话已失效，请重新发送 #抖音添加账号。')
     }
   } catch (error) {
-    await e.reply(`输入无效：${error.message}\n请重新发送当前步骤内容，或发送 #抖音ID取消添加。`)
+    await e.reply(`输入无效：${error.message}\n请重新发送当前步骤内容，或发送 #抖音取消添加。`)
   }
   return true
 }
@@ -111,7 +111,7 @@ async function setupFile(e) {
   try {
     await saveCookies(e, session, await readCookieTextFile(e))
   } catch (error) {
-    await e.reply(`文件无效：${error.message}\n请重新上传当前步骤的 .txt 文件，或发送 #抖音ID取消添加。`)
+    await e.reply(`文件无效：${error.message}\n请重新上传当前步骤的 .txt 文件，或发送 #抖音取消添加。`)
   }
   return true
 }
@@ -119,7 +119,7 @@ async function setupFile(e) {
 async function accountList(e) {
   const accounts = await listAccounts(e.user_id)
   if (accounts.length === 0) {
-    await e.reply('你还没有添加账号，请私聊机器人发送 #抖音ID添加账号。')
+    await e.reply('你还没有添加账号，请私聊机器人发送 #抖音添加账号。')
     return true
   }
   const lines = []
@@ -132,7 +132,7 @@ async function accountList(e) {
 }
 
 async function removeAccount(e) {
-  const name = String(e.msg).replace(/^#抖音ID删除账号\s+/, '').trim()
+  const name = String(e.msg).replace(/^#抖音删除账号\s+/, '').trim()
   const removed = await deleteAccount(e.user_id, name)
   await e.reply(removed ? `账号“${name}”已删除，其续火目标一并清除。` : `未找到名为“${name}”的账号。`)
   return true
@@ -140,10 +140,10 @@ async function removeAccount(e) {
 
 async function editAccount(e) {
   if (!isPrivate(e)) {
-    await e.reply('为保护 Cookie，请私聊机器人发送 #抖音ID修改账号 账号名。')
+    await e.reply('为保护 Cookie，请私聊机器人发送 #抖音修改账号 账号名。')
     return true
   }
-  const name = String(e.msg).replace(/^#抖音ID修改账号\s+/, '').trim()
+  const name = String(e.msg).replace(/^#抖音修改账号\s+/, '').trim()
   const account = (await listAccounts(e.user_id)).find((item) => item.name === name)
   if (!account) {
     await e.reply(`未找到名为“${name}”的账号。`)
@@ -151,10 +151,10 @@ async function editAccount(e) {
   }
   try {
     const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id, accountId: account.id })
-    const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接修改账号“${name}”：\n${url}`)
+    const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接修改账号“${name}”：\n${url}\n可更新 Cookie、消息模板，也可点「拉取会话列表」增删续火目标。`)
     bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
-    logger.error('[抖音ID续火] 创建账号修改链接失败', error)
+    logger.error('[抖音续火] 创建账号修改链接失败', error)
     await e.reply(`创建网页链接失败：${error.message}`)
   }
   return true
@@ -165,9 +165,9 @@ async function setEmail(e) {
     await e.reply('为保护邮箱隐私，请私聊机器人设置收件邮箱。')
     return true
   }
-  const email = String(e.msg).replace(/^#抖音ID设置邮箱\s+/, '').trim()
+  const email = String(e.msg).replace(/^#抖音设置邮箱\s+/, '').trim()
   if (!isValidEmail(email)) {
-    await e.reply('邮箱格式不正确，请重新发送 #抖音ID设置邮箱 your@example.com。')
+    await e.reply('邮箱格式不正确，请重新发送 #抖音设置邮箱 your@example.com。')
     return true
   }
   await setUserEmail(e.user_id, email)
@@ -207,7 +207,7 @@ async function enableSuccessEmail(e) {
   }
   const notification = (await getUserNotificationSettings([e.user_id])).get(String(e.user_id))
   if (!notification?.email) {
-    await e.reply('请先发送 #抖音ID设置邮箱 your@example.com，再开启成功邮件通知。')
+    await e.reply('请先发送 #抖音设置邮箱 your@example.com，再开启成功邮件通知。')
     return true
   }
   await setUserSuccessEmailEnabled(e.user_id, true)

@@ -29,6 +29,10 @@ im:
   # 自定义 message/send 请求体模板（Base64）。留空使用内置模板；
   # 内置模板失效时，浏览器 F12 抓取一次真实 message/send 请求体（binary）转 Base64 粘贴到这里
   templateB64: ""
+  # 拉取会话列表时补全昵称的人数上限（超过的条目只显示，不查昵称，加快拉取速度）
+  profileFetchLimit: 30
+  # 自定义 get_by_user_init（会话列表）请求体模板（Base64）。留空使用内置模板；
+  # 会话列表拉取失败且持续报「协议字段可能已变更」时，抓包真实 get_by_user_init 请求体转 Base64 粘贴到这里
 
 smtp:
   enabled: false

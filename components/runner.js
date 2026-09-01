@@ -14,7 +14,7 @@ import {
   listTargets,
   updateAccountSelfUid,
   updateTargetConversation,
-  updateTargetNickname,
+  updateTargetProfile,
 } from './database.js'
 import {
   DouyinApiError,
@@ -45,7 +45,7 @@ export async function runSpark({ userId, accountName } = {}) {
   }
   const accounts = resolveAccounts(selectedAccounts, config.message.template)
   if (accounts.length === 0) {
-    throw new Error('尚未添加账号，请私聊机器人发送 #抖音ID添加账号')
+    throw new Error('尚未添加账号，请私聊机器人发送 #抖音添加账号')
   }
 
   const yiyans = await loadYiyans()
@@ -95,7 +95,7 @@ async function runAccount(account, config, yiyans) {
   const templateB64 = config.im?.templateB64 || undefined
   const targets = await listTargets(account.id)
   if (targets.length === 0) {
-    throw new Error('该账号尚未添加续火目标，请发送 #抖音ID添加好友 <分享链接>')
+    throw new Error('该账号尚未添加续火目标，请发送 #抖音好友列表 <分享链接>')
   }
 
   const needsYiyan = !account.messageTemplate || /\{\{\s*(yiyan|from)\s*\}\}/.test(account.messageTemplate)
@@ -114,7 +114,7 @@ async function runAccount(account, config, yiyans) {
       const profile = await fetchUserProfile(cookieHeader, target.secUid, { webid, uifid })
       if (profile.nickname && profile.nickname !== target.nickname) {
         const oldName = target.nickname || '（未知）'
-        await updateTargetNickname(target.id, profile.nickname)
+        await updateTargetProfile(target.id, { nickname: profile.nickname, uniqueId: profile.uniqueId })
         renames.push(`${oldName} 已改名为 ${profile.nickname}`)
         target.nickname = profile.nickname
         logger.info(`[${account.name}] 目标昵称变更：${oldName} -> ${profile.nickname}`)
@@ -194,7 +194,7 @@ async function sendSuccessEmails(smtp, successes) {
   })
   if (deliveries.length === 0) return
   if (!smtp.host || !smtp.username || !smtp.password) {
-    logger.warn('[抖音ID续火] SMTP 已开启但配置不完整，跳过成功邮件')
+    logger.warn('[抖音续火] SMTP 已开启但配置不完整，跳过成功邮件')
     return
   }
   try {
@@ -212,16 +212,16 @@ async function sendSuccessEmails(smtp, successes) {
         await transporter.sendMail({
           from: smtp.from || smtp.username,
           to: recipient,
-          subject: '抖音ID续火任务成功',
-          text: `抖音ID续火任务已完成，成功发送 ${sent} 条消息。\n\n${userSuccesses.map((success) => `- ${success.accountName}：${success.sent} 条`).join('\n')}${renameLines.length ? `\n\n${renameLines.join('\n')}` : ''}`,
+          subject: '抖音续火任务成功',
+          text: `抖音续火任务已完成，成功发送 ${sent} 条消息。\n\n${userSuccesses.map((success) => `- ${success.accountName}：${success.sent} 条`).join('\n')}${renameLines.length ? `\n\n${renameLines.join('\n')}` : ''}`,
         })
-        logger.mark(`[抖音ID续火] 已向用户 ${userId} 发送成功邮件`)
+        logger.mark(`[抖音续火] 已向用户 ${userId} 发送成功邮件`)
       } catch (error) {
-        logger.error(`[抖音ID续火] 向用户 ${userId} 发送成功邮件失败`, error)
+        logger.error(`[抖音续火] 向用户 ${userId} 发送成功邮件失败`, error)
       }
     }
   } catch (error) {
-    logger.error('[抖音ID续火] 发送成功邮件失败', error)
+    logger.error('[抖音续火] 发送成功邮件失败', error)
   }
 }
 
@@ -237,7 +237,7 @@ async function sendFailureEmails(smtp, failures) {
   const deliveries = [...failuresByUser].filter(([userId]) => emails.get(userId))
   if (deliveries.length === 0) return
   if (!smtp.host || !smtp.username || !smtp.password) {
-    logger.warn('[抖音ID续火] SMTP 已开启但配置不完整，跳过失败邮件')
+    logger.warn('[抖音续火] SMTP 已开启但配置不完整，跳过失败邮件')
     return
   }
   try {
@@ -253,16 +253,16 @@ async function sendFailureEmails(smtp, failures) {
         await transporter.sendMail({
           from: smtp.from || smtp.username,
           to: recipient,
-          subject: '抖音ID续火任务失败',
-          text: `抖音ID续火任务执行失败：\n\n${userFailures.map(formatFailure).join('\n')}`,
+          subject: '抖音续火任务失败',
+          text: `抖音续火任务执行失败：\n\n${userFailures.map(formatFailure).join('\n')}`,
         })
-        logger.mark(`[抖音ID续火] 已向用户 ${userId} 发送失败邮件`)
+        logger.mark(`[抖音续火] 已向用户 ${userId} 发送失败邮件`)
       } catch (error) {
-        logger.error(`[抖音ID续火] 向用户 ${userId} 发送失败邮件失败`, error)
+        logger.error(`[抖音续火] 向用户 ${userId} 发送失败邮件失败`, error)
       }
     }
   } catch (error) {
-    logger.error('[抖音ID续火] 发送失败邮件失败', error)
+    logger.error('[抖音续火] 发送失败邮件失败', error)
   }
 }
 

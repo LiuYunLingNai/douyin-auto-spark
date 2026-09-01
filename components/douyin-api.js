@@ -178,7 +178,7 @@ export async function resolveShareLink(text) {
  * @param {string} cookieHeader
  * @param {string} secUid
  * @param {{ webid?: string, uifid?: string }} [extra]
- * @returns {Promise<{ uid: string, secUid: string, nickname: string, avatar: string }>}
+ * @returns {Promise<{ uid: string, secUid: string, nickname: string, uniqueId: string, avatar: string }>}
  */
 export async function fetchUserProfile(cookieHeader, secUid, { webid = '', uifid = '' } = {}) {
   if (!secUid || secUid.length < 10 || secUid.length > 100) {
@@ -243,6 +243,8 @@ export async function fetchUserProfile(cookieHeader, secUid, { webid = '', uifid
     uid: String(user.uid),
     secUid,
     nickname: String(user.nickname || ''),
+    // 抖音号（用户可见的短 ID，如 douyin123）；未设置时回落 short_id
+    uniqueId: String(user.unique_id || user.short_id || ''),
     avatar: String(user.avatar_larger?.url_list?.[0] || user.avatar_thumb?.url_list?.[0] || ''),
   }
 }

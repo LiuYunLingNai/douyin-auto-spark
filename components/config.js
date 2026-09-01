@@ -19,7 +19,7 @@ const defaults = {
     template: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
   },
   send: { minIntervalSec: 3, maxIntervalSec: 8 },
-  im: { templateB64: '' },
+  im: { templateB64: '', profileFetchLimit: 30 },
   smtp: {
     enabled: false,
     host: 'smtp.qq.com',
@@ -139,7 +139,7 @@ export function detectSystemBrowser() {
   }
 
   if (detectedSystemBrowser) {
-    globalThis.logger?.mark?.(`[抖音ID续火] 已复用系统浏览器：${detectedSystemBrowser}`)
+    globalThis.logger?.mark?.(`[抖音续火] 已复用系统浏览器：${detectedSystemBrowser}`)
   }
   return detectedSystemBrowser
 }
@@ -174,7 +174,7 @@ export function watchConfig(listener) {
       clearTimeout(changeTimer)
       changeTimer = setTimeout(notifyConfigChange, 150)
     })
-    configWatcher.on('error', (error) => logger.error('[抖音ID续火] 配置文件监听失败', error))
+    configWatcher.on('error', (error) => logger.error('[抖音续火] 配置文件监听失败', error))
   }
   return () => configListeners.delete(listener)
 }
@@ -293,15 +293,15 @@ function notifyConfigChange() {
   try {
     getConfig()
   } catch (error) {
-    logger.error('[抖音ID续火] 配置文件读取失败，已保留当前定时任务', error)
+    logger.error('[抖音续火] 配置文件读取失败，已保留当前定时任务', error)
     return
   }
   for (const listener of configListeners) {
     try {
       listener()
     } catch (error) {
-      logger.error('[抖音ID续火] 配置热重载失败', error)
+      logger.error('[抖音续火] 配置热重载失败', error)
     }
   }
-  logger.mark('[抖音ID续火] 配置已热重载')
+  logger.mark('[抖音续火] 配置已热重载')
 }
