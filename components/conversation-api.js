@@ -112,6 +112,7 @@ export async function listConversations(cookies, { onProgress } = {}) {
       person.nickname = profile.nickname
       if (profile.uid) person.uid = profile.uid
       if (profile.uniqueId) person.uniqueId = profile.uniqueId
+      if (profile.avatar) person.avatar = profile.avatar
     } catch {
       person.nickname = ''
     }

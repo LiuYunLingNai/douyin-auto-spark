@@ -114,7 +114,7 @@ async function runAccount(account, config, yiyans) {
       const profile = await fetchUserProfile(cookieHeader, target.secUid, { webid, uifid })
       if (profile.nickname && profile.nickname !== target.nickname) {
         const oldName = target.nickname || '（未知）'
-        await updateTargetProfile(target.id, { nickname: profile.nickname, uniqueId: profile.uniqueId })
+        await updateTargetProfile(target.id, { nickname: profile.nickname, uniqueId: profile.uniqueId, avatar: profile.avatar })
         renames.push(`${oldName} 已改名为 ${profile.nickname}`)
         target.nickname = profile.nickname
         logger.info(`[${account.name}] 目标昵称变更：${oldName} -> ${profile.nickname}`)

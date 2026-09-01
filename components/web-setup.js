@@ -603,6 +603,7 @@ async function getInitialValues(session) {
     secUid: target.secUid,
     nickname: target.nickname,
     uniqueId: target.uniqueId,
+    avatar: target.avatar,
   }))
   return {
     name: account.name,
@@ -637,6 +638,7 @@ async function saveWebSetup(session, body) {
           uid: String(item.uid || ''),
           nickname: String(item.nickname || '').slice(0, 60),
           uniqueId: String(item.uniqueId || '').slice(0, 60),
+          avatar: String(item.avatar || '').slice(0, 500),
           conversationId: String(item.conversationId || ''),
           conversationShortId: String(item.conversationShortId || ''),
           ticket: String(item.ticket || ''),
@@ -704,6 +706,7 @@ function renderSetupPage(token, initial, editing) {
     .conv-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #e4eaf1; border-radius: 4px; background: #fff; font-weight: 400; }
     .conv-item input { width: 16px; height: 16px; }
     .conv-item .uid { color: #98a2b3; font-size: 11px; margin-left: auto; }
+    .conv-item .avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #e4eaf1; flex: none; }
     .scan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .scan button { justify-self: start; }
     .qr { display: none; width: min(360px, 100%); max-height: 360px; object-fit: contain; border: 1px solid #d7dee8; background: #fff; }
@@ -777,6 +780,15 @@ function renderSetupPage(token, initial, editing) {
         box.type = 'checkbox';
         box.checked = target.checked;
         box.addEventListener('change', () => { target.checked = box.checked; });
+        if (target.avatar) {
+          const img = document.createElement('img');
+          img.className = 'avatar';
+          img.src = target.avatar;
+          img.alt = '';
+          img.loading = 'lazy';
+          img.addEventListener('error', () => { img.style.display = 'none' });
+          item.append(img);
+        }
         const name = document.createElement('span');
         name.textContent = target.nickname || '（昵称未获取）';
         item.append(box, name);

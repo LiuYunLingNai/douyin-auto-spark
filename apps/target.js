@@ -101,13 +101,14 @@ async function targetList(e) {
         if (profile.nickname && profile.nickname !== target.nickname) {
           suffix = `（已改名：${target.nickname || '未知'} → ${profile.nickname}）`
         }
-        if ((profile.nickname && profile.nickname !== target.nickname) || (profile.uniqueId && profile.uniqueId !== target.uniqueId)) {
+        if ((profile.nickname && profile.nickname !== target.nickname) || (profile.uniqueId && profile.uniqueId !== target.uniqueId) || (profile.avatar && profile.avatar !== target.avatar)) {
           await updateTargetProfile(target.id, {
             nickname: profile.nickname || target.nickname,
             uniqueId: profile.uniqueId || target.uniqueId,
+            avatar: profile.avatar || target.avatar,
           })
         }
-        shown = { ...target, nickname: profile.nickname || target.nickname, uniqueId: profile.uniqueId || target.uniqueId }
+        shown = { ...target, nickname: profile.nickname || target.nickname, uniqueId: profile.uniqueId || target.uniqueId, avatar: profile.avatar || target.avatar }
       } catch {
         suffix = '（昵称刷新失败）'
       }
@@ -169,7 +170,7 @@ async function refreshNicknames(e) {
     try {
       const profile = await fetchUserProfile(cookieHeader, target.secUid, { webid, uifid })
       if (profile.nickname && profile.nickname !== target.nickname) {
-        await updateTargetProfile(target.id, { nickname: profile.nickname, uniqueId: profile.uniqueId })
+        await updateTargetProfile(target.id, { nickname: profile.nickname, uniqueId: profile.uniqueId, avatar: profile.avatar })
         changes.push(`${target.nickname || '（未知）'} → ${profile.nickname}`)
       }
     } catch (error) {
