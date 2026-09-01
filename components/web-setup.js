@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { chromium } from 'playwright'
-import { getConfig, getPluginRoot } from './config.js'
+import { getBrowserLaunchOptions, getConfig, getPluginRoot } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
 
@@ -269,10 +269,7 @@ async function startScanSession(token, { force = false } = {}) {
   let context
   let page
   try {
-    browser = await chromium.launch({
-      headless: config.browser?.headless !== false,
-      ...(config.browser?.executablePath ? { executablePath: config.browser.executablePath } : {}),
-    })
+    browser = await chromium.launch(getBrowserLaunchOptions(config))
     context = await browser.newContext()
     page = await context.newPage()
   } catch (error) {

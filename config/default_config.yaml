@@ -4,12 +4,20 @@ schedule:
   cron: "0 10 0 * * *"
 
 browser:
+  # 开启后自动探测并复用系统已安装的 Edge/Chrome/Chromium，无需下载 Playwright 自带 Chromium
+  preferSystem: true
+  # 浏览器渠道，填 msedge 或 chrome 可自动定位系统已安装的浏览器；优先于自动探测
+  channel: ""
+  # 手动指定浏览器可执行文件路径，填写后优先于 channel
   executablePath: ""
   headless: true
 
 message:
+  # 未设置消息模板时，是否在随机一言后附带出处
   includeSource: true
-  template: ""
+  # 消息模板，留空发送随机一言；换行写 \n
+  # 占位符：{{account}} 账号别名、{{friend}} 会话名、{{yiyan}} 一言正文、{{from}} 一言出处、{{date}} 日期、{{time}} 时间、{{weekday}} 星期
+  template: '{{friend}}，今天的火花到账啦🔥\n{{yiyan}}\n——「{{from}}」\n{{date}} {{weekday}}'
 
 smtp:
   enabled: false
@@ -23,8 +31,10 @@ smtp:
 web:
   # true 时挂载到 TRSS 的 /douyin-auto-spark；false 时使用独立网页服务
   mountToTrss: true
+  # 仅在未挂载到 TRSS 时使用，修改后需重启云崽
   standalonePort: 3065
-  # 手机访问时填可从手机访问到的地址，例如 http://192.168.1.10:2536
+  # 机器人发出的链接以此地址开头，填你点链接的设备能访问到的完整地址，端口需与实际服务端口一致
+  # 例如局域网手机访问填 http://192.168.1.10:2536；留空时挂载模式取云崽 Bot.url，独立模式取 http://127.0.0.1:独立端口
   baseUrl: ""
   linkExpiresMinutes: 10
   # 添加或修改网页保存成功后撤回发送给用户的网页链接消息
