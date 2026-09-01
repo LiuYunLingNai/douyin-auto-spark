@@ -15,13 +15,22 @@
 
 ## 安装
 
+在 Yunzai 根目录执行：
+
 ```bash
-# 在 Yunzai/plugins 目录下
-cd douyin-id-spark
-pnpm install   # 或 npm install
+git clone -b api --single-branch https://github.com/LiuYunLingNai/douyin-auto-spark.git plugins/douyin-id-spark
+pnpm install
 ```
 
-重启云崽后生效。**浏览器（Playwright）仅用于扫码登录这一步**——经实测，抖音现行登录（login.douyin.com）的二维码获取可以纯 API 完成，但扫码状态轮询（check_qrconnect）强制要求 mssdk 加密设备证明（JSVMP 保护），纯 API 无法复现，因此扫码登录保留无头浏览器一次性完成。发消息、拉会话列表、查昵称均为纯 API。若不需要扫码功能（只粘贴 Cookie JSON），可不安装 Playwright 浏览器。
+插件默认开启 `browser.preferSystem`，扫码登录时会自动探测并复用系统已安装的 Edge、Chrome 或 Chromium，无需额外下载浏览器。仅当系统没有安装任何浏览器时，才需要额外下载 Playwright 自带的 Chromium（不扫码、只粘贴 Cookie 的话可以不装）：
+
+```bash
+pnpm --dir plugins/douyin-id-spark exec playwright install chromium
+```
+
+首次启动会自动创建 `plugins/douyin-id-spark/config/config.yaml`，可在锅巴或该文件配置定时任务、默认消息、发送间隔、SMTP 和网页服务。
+
+**浏览器（Playwright）仅用于扫码登录这一步**——经实测，抖音现行登录（login.douyin.com）的二维码获取可以纯 API 完成，但扫码状态轮询（check_qrconnect）强制要求 mssdk 加密设备证明（JSVMP 保护），纯 API 无法复现，因此扫码登录保留无头浏览器一次性完成。发消息、拉会话列表、查昵称均为纯 API。若不需要扫码功能（只粘贴 Cookie JSON），可不安装 Playwright 浏览器。
 
 ## 使用流程
 
