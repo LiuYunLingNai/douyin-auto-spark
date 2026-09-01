@@ -149,6 +149,7 @@ export async function addAccount({ userId, name, cookies, targetNames, messageTe
       }
       throw error
     }
+    // 须与 INSERT 同处一个同步回调，last_insert_rowid 才可靠
     const [row] = rows(database, 'SELECT last_insert_rowid() AS id')
     return Number(row.id)
   }, true)
@@ -157,6 +158,14 @@ export async function addAccount({ userId, name, cookies, targetNames, messageTe
 export async function deleteAccount(userId, name) {
   return run((database) => {
     database.run('DELETE FROM accounts WHERE user_id = ? AND name = ?', [String(userId), name])
+    return database.getRowsModified() > 0
+  }, true)
+}
+
+/** 删除用户行（其账号与目标随外键级联删除）；主要供测试清理残留数据 */
+export async function deleteUserRow(userId) {
+  return run((database) => {
+    database.run('DELETE FROM users WHERE user_id = ?', [String(userId)])
     return database.getRowsModified() > 0
   }, true)
 }

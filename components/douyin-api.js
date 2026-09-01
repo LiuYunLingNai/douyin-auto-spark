@@ -82,27 +82,8 @@ function assertHttpOk(response, action) {
   }
 }
 
-export async function postImProto(path, cookieHeader, body, action, { signed = true, templateB64 } = {}) {
-  let url = `${IMAPI_BASE}${path}`
-  if (signed) {
-    const msToken = genMsToken()
-    const fp = genVerifyFp()
-    const query = `msToken=${encodeURIComponent(msToken)}&verifyFp=${encodeURIComponent(fp)}&fp=${encodeURIComponent(fp)}`
-    url += `?${query}&a_bogus=${encodeURIComponent(signABogus(query, USER_AGENT))}`
-  }
-  let response
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: imHeaders(cookieHeader),
-      body,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
-  } catch (error) {
-    throw new DouyinApiError(`${action}：网络请求异常（${error.message}）`, { kind: 'network' })
-  }
-  assertHttpOk(response, action)
-  const bytes = Buffer.from(await response.arrayBuffer())
+export async function postImProto(path, cookieHeader, body, action, { signed = true } = {}) {
+  const bytes = await postImProtoRaw(path, cookieHeader, body, action, { signed })
   let parsed
   try {
     parsed = parseImResponse(bytes)
