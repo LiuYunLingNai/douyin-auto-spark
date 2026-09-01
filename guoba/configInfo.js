@@ -17,11 +17,31 @@ const schemas = [
     componentProps: { placeholder: '0 10 8 * * *' },
   },
   {
+    field: 'browser.preferSystem',
+    label: '优先复用系统浏览器',
+    bottomHelpMessage: '开启后自动探测本机已安装的 Edge、Chrome 或 Chromium 并直接使用，无需下载 Playwright 自带 Chromium；探测不到时回落到自带 Chromium。下方渠道和路径填写后优先生效。',
+    component: 'Switch',
+    defaultValue: true,
+  },
+  {
+    field: 'browser.channel',
+    label: '浏览器渠道',
+    bottomHelpMessage: '选择 Edge 或 Chrome 时由 Playwright 自动定位系统已安装的浏览器，无需填写路径；留空则按上方开关自动探测。',
+    component: 'Select',
+    componentProps: {
+      options: [
+        { label: '不指定（自动探测或使用自带 Chromium）', value: '' },
+        { label: '系统 Edge', value: 'msedge' },
+        { label: '系统 Chrome', value: 'chrome' },
+      ],
+    },
+  },
+  {
     field: 'browser.executablePath',
     label: '浏览器路径',
-    bottomHelpMessage: '指定本机 Chrome 或 Edge 的可执行文件路径；留空则使用 Playwright 安装的浏览器。',
+    bottomHelpMessage: '手动指定本机 Chrome 或 Edge 的可执行文件路径，填写后优先于上方浏览器渠道；一般留空即可。',
     component: 'Input',
-    placeholder: '留空使用 Playwright 浏览器',
+    placeholder: '留空则按浏览器渠道自动定位',
   },
   {
     field: 'browser.headless',
@@ -40,10 +60,11 @@ const schemas = [
   {
     field: 'message.template',
     label: '默认消息模板',
-    bottomHelpMessage: '留空则发送随机一言。可用 {{account}}、{{friend}}、{{yiyan}}、{{from}}、{{date}}、{{time}}、{{weekday}}。',
+    bottomHelpMessage: '留空则发送随机一言。可用占位符：{{account}} 账号别名、{{friend}} 会话名、{{yiyan}} 一言正文、{{from}} 一言出处、{{date}} 日期、{{time}} 时间、{{weekday}} 星期；换行写 \\n。账号未填写专属模板时使用这份模板。',
     component: 'Textarea',
     rows: 3,
-    placeholder: '{{friend}}，今天来续火啦\\n{{yiyan}}',
+    defaultValue: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
+    placeholder: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
   },
   { component: 'Divider', label: '网页账号配置' },
   {
@@ -65,7 +86,7 @@ const schemas = [
   {
     field: 'web.baseUrl',
     label: '网页访问地址',
-    bottomHelpMessage: '填写手机或 QQ 内浏览器能访问到的完整地址，例如 http://192.168.1.10:2536；留空时自动使用机器人地址。',
+    bottomHelpMessage: '机器人发出的链接以此地址开头，填写你点链接的那台设备能访问到的完整地址，端口要和实际服务端口一致，例如 http://192.168.1.10:2536。末尾斜杠可省略，但必须带 http:// 或 https://。留空时挂载模式取云崽的 Bot.url，独立模式取 http://127.0.0.1:独立端口（手机访问不到）。',
     component: 'Input',
     placeholder: 'http://192.168.1.10:2536',
   },

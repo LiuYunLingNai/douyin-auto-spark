@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,10 +13,10 @@ let changeTimer
 
 const defaults = {
   schedule: { enabled: true, cron: '0 10 0 * * *' },
-  browser: { executablePath: '', headless: true },
+  browser: { preferSystem: true, channel: '', executablePath: '', headless: true },
   message: {
     includeSource: true,
-    template: '',
+    template: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
   },
   smtp: {
     enabled: false,
@@ -74,6 +75,89 @@ function expandDotPaths(value) {
 export function getConfig() {
   ensureConfigFile()
   return merge(merge(defaults, readYaml(defaultFile)), readYaml(configFile))
+}
+
+const systemBrowserCandidates = {
+  commands: ['microsoft-edge', 'microsoft-edge-stable', 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'],
+  win32: [
+    '\\Microsoft\\Edge\\Application\\msedge.exe',
+    '\\Google\\Chrome\\Application\\chrome.exe',
+  ],
+  darwin: [
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  ],
+  linux: [
+    '/opt/microsoft/msedge/msedge',
+    '/opt/google/chrome/chrome',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+  ],
+}
+
+let detectedSystemBrowser
+
+function windowsPrefixes() {
+  return [
+    process.env.LOCALAPPDATA,
+    process.env.PROGRAMFILES,
+    process.env['PROGRAMFILES(X86)'],
+    process.env.HOMEDRIVE && `${process.env.HOMEDRIVE}\\Program Files`,
+    process.env.HOMEDRIVE && `${process.env.HOMEDRIVE}\\Program Files (x86)`,
+  ].filter(Boolean)
+}
+
+export function detectSystemBrowser() {
+  if (detectedSystemBrowser !== undefined) return detectedSystemBrowser
+
+  detectedSystemBrowser = ''
+  if (['linux', 'android'].includes(process.platform)) {
+    for (const command of systemBrowserCandidates.commands) {
+      try {
+        const found = execSync(`command -v ${command}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+        if (found && fs.existsSync(found)) {
+          detectedSystemBrowser = found
+          break
+        }
+      } catch {}
+    }
+  }
+
+  if (!detectedSystemBrowser) {
+    const suffixes = systemBrowserCandidates[process.platform] ?? []
+    const prefixes = process.platform === 'win32' ? windowsPrefixes() : ['']
+    for (const suffix of suffixes) {
+      const found = prefixes.map((prefix) => path.join(prefix, suffix)).find((file) => fs.existsSync(file))
+      if (found) {
+        detectedSystemBrowser = found
+        break
+      }
+    }
+  }
+
+  if (detectedSystemBrowser) {
+    globalThis.logger?.mark?.(`[抖音续火] 已复用系统浏览器：${detectedSystemBrowser}`)
+  }
+  return detectedSystemBrowser
+}
+
+export function getBrowserLaunchOptions(config = getConfig()) {
+  const browser = config.browser ?? {}
+  const options = { headless: browser.headless !== false }
+  if (browser.executablePath) {
+    options.executablePath = browser.executablePath
+    return options
+  }
+  if (browser.channel) {
+    options.channel = browser.channel
+    return options
+  }
+  if (browser.preferSystem !== false) {
+    const detected = detectSystemBrowser()
+    if (detected) options.executablePath = detected
+  }
+  return options
 }
 
 export function getPluginRoot() {

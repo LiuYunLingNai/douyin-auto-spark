@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn.js'
 import utc from 'dayjs/plugin/utc.js'
 import timezone from 'dayjs/plugin/timezone.js'
-import { getConfig, getPluginRoot } from './config.js'
+import { getBrowserLaunchOptions, getConfig, getPluginRoot } from './config.js'
 import { getUserEmails, getUserNotificationSettings, listAccounts } from './database.js'
 
 dayjs.extend(utc)
@@ -32,10 +32,7 @@ export async function runSpark({ userId, accountName } = {}) {
   }
 
   const yiyans = await loadYiyans()
-  const browser = await chromium.launch({
-    headless: config.browser.headless !== false,
-    ...(config.browser.executablePath ? { executablePath: config.browser.executablePath } : {}),
-  })
+  const browser = await chromium.launch(getBrowserLaunchOptions(config))
   const failures = []
   const successes = []
   const screenshots = []
