@@ -1,0 +1,54 @@
+# 复制为 config.yaml 后按需调整。账号与续火目标通过机器人命令管理（#抖音ID添加账号 / #抖音ID添加好友）。
+schedule:
+  enabled: true
+  cron: "0 10 0 * * *"
+
+browser:
+  # 浏览器仅用于扫码登录获取 Cookie；发送消息走 API，不需要浏览器
+  # 开启后自动探测并复用系统已安装的 Edge/Chrome/Chromium，无需下载 Playwright 自带 Chromium
+  preferSystem: true
+  # 浏览器渠道，填 msedge 或 chrome 可自动定位系统已安装的浏览器；优先于自动探测
+  channel: ""
+  # 手动指定浏览器可执行文件路径，填写后优先于 channel
+  executablePath: ""
+  headless: true
+
+message:
+  # 未设置消息模板时，是否在随机一言后附带出处
+  includeSource: true
+  # 消息模板，留空发送随机一言；换行写 \n
+  # 占位符：{{account}} 账号别名、{{friend}} 目标昵称、{{yiyan}} 一言正文、{{from}} 一言出处、{{date}} 日期、{{time}} 时间、{{weekday}} 星期
+  template: '{{friend}}，今天的火花到账啦🔥\n{{yiyan}}\n——「{{from}}」\n{{date}} {{weekday}}'
+
+send:
+  # 同一账号相邻两个目标之间的随机发送间隔（秒），降低风控概率
+  minIntervalSec: 3
+  maxIntervalSec: 8
+
+im:
+  # 自定义 message/send 请求体模板（Base64）。留空使用内置模板；
+  # 内置模板失效时，浏览器 F12 抓取一次真实 message/send 请求体（binary）转 Base64 粘贴到这里
+  templateB64: ""
+
+smtp:
+  enabled: false
+  host: smtp.qq.com
+  port: 465
+  secure: true
+  username: ""
+  password: ""
+  from: ""
+
+web:
+  # true 时挂载到 TRSS 的 /douyin-id-spark；false 时使用独立网页服务
+  mountToTrss: true
+  # 仅在未挂载到 TRSS 时使用，修改后需重启云崽
+  standalonePort: 3066
+  # 机器人发出的链接以此地址开头，填你点链接的设备能访问到的完整地址，端口需与实际服务端口一致
+  # 例如局域网手机访问填 http://192.168.1.10:2536；留空时挂载模式取云崽 Bot.url，独立模式取 http://127.0.0.1:独立端口
+  baseUrl: ""
+  linkExpiresMinutes: 10
+  # 添加或修改网页保存成功后撤回发送给用户的网页链接消息
+  recallSetupMessageOnComplete: false
+  # 网页链接发送后自动撤回秒数，0 表示不自动撤回
+  setupMessageRecallSeconds: 0

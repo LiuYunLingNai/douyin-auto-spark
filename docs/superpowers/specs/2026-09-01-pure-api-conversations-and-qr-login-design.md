@@ -89,6 +89,10 @@ message ConversationCore { string conversation_id = 1; int64 conversation_short_
 - 导出 `postImProto`（现为模块私有）
 - 无其他改动
 
+### components/database.js（小改）
+
+- `addAccount` 返回新账号 id（现在不返回；replaceTargets 需要），实现为插入后 `SELECT last_insert_rowid()` 或先查后插
+
 ### components/web-setup.js（重构）
 
 - 删除：Playwright import、scanSessions 里浏览器句柄/截图逻辑、captureDouyinQr、maybeRequestSmsVerification、submitScanSmsCode、clickSmsSubmit、saveScanScreenshot、looksLoggedInPage、closeScanBrowser、handleScanSms、handleScanScreenshot 端点、短信相关路由

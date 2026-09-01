@@ -1,0 +1,17 @@
+{
+  "name": "douyin-id-spark",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "dayjs": "1.11.21",
+    "node-schedule": "^2.1.1",
+    "nodemailer": "^7.0.6",
+    "playwright": "1.61.0",
+    "protobufjs": "^7.4.0",
+    "sql.js": "^1.13.0",
+    "yaml": "^2.8.1"
+  },
+  "packageManager": "pnpm@11.19.0"
+}

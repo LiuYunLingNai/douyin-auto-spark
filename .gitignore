@@ -1,0 +1,5 @@
+node_modules/
+artifacts/
+config/config.yaml
+data/*.db
+data/*.db-*
