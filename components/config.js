@@ -205,50 +205,64 @@ function ensureConfigFile() {
   }
 
   if (!fs.existsSync(defaultFile)) return
-  const userDoc = YAML.parseDocument(fs.readFileSync(configFile, 'utf8'))
+  const before = fs.readFileSync(configFile, 'utf8')
+  const userDoc = YAML.parseDocument(before)
   const defaultDoc = YAML.parseDocument(fs.readFileSync(defaultFile, 'utf8'))
   if (!YAML.isMap(userDoc.contents) || !YAML.isMap(defaultDoc.contents)) return
-  if (mergeYamlMaps(userDoc.contents, defaultDoc.contents)) {
-    fs.writeFileSync(configFile, userDoc.toString(), 'utf8')
+  mergeYamlMaps(userDoc.contents, defaultDoc.contents)
+  const after = userDoc.toString()
+  if (after !== before) {
+    fs.writeFileSync(configFile, after, 'utf8')
   }
 }
 
 function mergeYamlMaps(userMap, defaultMap) {
-  let changed = false
-  const existing = new Map(userMap.items.map((item) => [String(item.key?.value), item]))
-  for (const defaultItem of defaultMap.items) {
+  const existing = new Map(userMap.items.map((item, index) => [String(item.key?.value), { item, index }]))
+  for (const [defaultIndex, defaultItem] of defaultMap.items.entries()) {
     const key = String(defaultItem.key?.value)
-    const userItem = existing.get(key)
-    if (!userItem) {
+    const found = existing.get(key)
+    if (!found) {
       userMap.items.push(defaultItem.clone?.() ?? defaultItem)
-      changed = true
-    } else if (YAML.isMap(userItem.value) && YAML.isMap(defaultItem.value)) {
-      changed = copyYamlComments(userItem, defaultItem) || changed
-      changed = mergeYamlMaps(userItem.value, defaultItem.value) || changed
-    } else {
-      changed = copyYamlComments(userItem, defaultItem) || changed
+      continue
+    }
+    copyLeadingComment(userMap, found.index, defaultMap, defaultIndex)
+    copyInlineComment(found.item, defaultItem)
+    if (YAML.isMap(found.item.value) && YAML.isMap(defaultItem.value)) {
+      mergeYamlMaps(found.item.value, defaultItem.value)
     }
   }
-  return changed
 }
 
-function copyYamlComments(userItem, defaultItem) {
-  let changed = false
-  for (const property of ['commentBefore', 'comment']) {
-    if (!userItem[property] && defaultItem[property]) {
-      userItem[property] = defaultItem[property]
-      changed = true
-    }
-    if (!userItem.key?.[property] && defaultItem.key?.[property]) {
-      userItem.key[property] = defaultItem.key[property]
-      changed = true
-    }
-    if (!userItem.value?.[property] && defaultItem.value?.[property]) {
-      userItem.value[property] = defaultItem.value[property]
-      changed = true
-    }
+function readLeadingComment(map, index) {
+  return index === 0 ? map.commentBefore : map.items[index]?.key?.commentBefore
+}
+
+function writeLeadingComment(map, index, comment) {
+  if (index === 0) {
+    map.commentBefore = comment
+    return
   }
-  return changed
+  const target = map.items[index]?.key
+  if (target) target.commentBefore = comment
+}
+
+function copyLeadingComment(userMap, userIndex, defaultMap, defaultIndex) {
+  if (readLeadingComment(userMap, userIndex)) return
+  const comment = readLeadingComment(defaultMap, defaultIndex)
+  if (comment) writeLeadingComment(userMap, userIndex, comment)
+}
+
+function copyInlineComment(userItem, defaultItem) {
+  if (!userItem.key?.comment && defaultItem.key?.comment) {
+    userItem.key.comment = defaultItem.key.comment
+  }
+  const userValue = userItem.value
+  const defaultValue = defaultItem.value
+  if (!userValue || !defaultValue) return
+  if (YAML.isMap(userValue) || YAML.isSeq(userValue)) return
+  if (!userValue.comment && defaultValue.comment) {
+    userValue.comment = defaultValue.comment
+  }
 }
 
 function updateYamlMap(document, path, value) {
