@@ -82,7 +82,7 @@ function assertHttpOk(response, action) {
   }
 }
 
-async function postImProto(path, cookieHeader, body, action, { signed = true, templateB64 } = {}) {
+export async function postImProto(path, cookieHeader, body, action, { signed = true, templateB64 } = {}) {
   let url = `${IMAPI_BASE}${path}`
   if (signed) {
     const msToken = genMsToken()
@@ -120,6 +120,34 @@ async function postImProto(path, cookieHeader, body, action, { signed = true, te
     }
   }
   return parsed
+}
+
+/**
+ * 发送 imapi protobuf 请求并返回原始字节（调用方按各自接口结构解析）。
+ * 与 postImProto 的区别：不做 message/send 语义的响应解析。
+ * @returns {Promise<Buffer>}
+ */
+export async function postImProtoRaw(path, cookieHeader, body, action, { signed = false } = {}) {
+  let url = `${IMAPI_BASE}${path}`
+  if (signed) {
+    const msToken = genMsToken()
+    const fp = genVerifyFp()
+    const query = `msToken=${encodeURIComponent(msToken)}&verifyFp=${encodeURIComponent(fp)}&fp=${encodeURIComponent(fp)}`
+    url += `?${query}&a_bogus=${encodeURIComponent(signABogus(query, USER_AGENT))}`
+  }
+  let response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: imHeaders(cookieHeader),
+      body,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new DouyinApiError(`${action}：网络请求异常（${error.message}）`, { kind: 'network' })
+  }
+  assertHttpOk(response, action)
+  return Buffer.from(await response.arrayBuffer())
 }
 
 /**

@@ -149,6 +149,8 @@ export async function addAccount({ userId, name, cookies, targetNames, messageTe
       }
       throw error
     }
+    const [row] = rows(database, 'SELECT last_insert_rowid() AS id')
+    return Number(row.id)
   }, true)
 }
 
@@ -334,7 +336,7 @@ export async function updateTargetNickname(targetId, nickname) {
   }, true)
 }
 
-/** 整体替换账号的目标列表（网页配置保存时调用） */
+/** 整体替换账号的目标列表（网页配置保存时调用），保留会话信息避免续火时重建会话 */
 export async function replaceTargets(accountId, targets) {
   return run((database) => {
     database.run('DELETE FROM targets WHERE account_id = ?', [Number(accountId)])
@@ -342,8 +344,9 @@ export async function replaceTargets(accountId, targets) {
     for (const target of targets) {
       database.run(
         `INSERT INTO targets (account_id, sec_uid, uid, nickname, conversation_id, conversation_short_id, ticket, nickname_updated_at, created_at)
-         VALUES (?, ?, ?, ?, '', '', '', ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [Number(accountId), String(target.secUid), String(target.uid || ''), String(target.nickname || ''),
+          String(target.conversationId || ''), String(target.conversationShortId || ''), String(target.ticket || ''),
           target.nickname ? now : null, now],
       )
     }
