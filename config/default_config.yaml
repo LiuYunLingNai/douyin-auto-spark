@@ -24,6 +24,8 @@ send:
   # 同一账号相邻两个目标之间的随机发送间隔（秒），降低风控概率
   minIntervalSec: 3
   maxIntervalSec: 8
+  # 开启后，今天已经给对方发过消息的会话直接跳过（火花每天只需发一次）
+  skipIfSentToday: true
 
 im:
   # 自定义 message/send 请求体模板（Base64）。留空使用内置模板；

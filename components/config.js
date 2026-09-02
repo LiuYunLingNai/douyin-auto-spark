@@ -18,7 +18,7 @@ const defaults = {
     includeSource: true,
     template: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
   },
-  send: { minIntervalSec: 3, maxIntervalSec: 8 },
+  send: { minIntervalSec: 3, maxIntervalSec: 8, skipIfSentToday: true },
   im: { templateB64: '', profileFetchLimit: 30 },
   smtp: {
     enabled: false,

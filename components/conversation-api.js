@@ -7,7 +7,6 @@ import {
   buildCookieHeader,
   fetchUserProfile,
   getCookieValue,
-  getSelfUidFromCookies,
   postImProtoRaw,
 } from './douyin-api.js'
 import { buildGetByUserInitBody, parseGetByUserInitResponse } from './im-proto.js'
@@ -63,20 +62,13 @@ export function extractPeople(pages, selfUid) {
   return [...people.values()]
 }
 
-/**
- * 拉取账号会话列表中出现过的用户（昵称通过 profile 接口逐个补全）
- * @param {Array} cookies Cookie-Editor JSON 数组
- * @param {{ onProgress?: (msg: string) => void }} [options]
- * @returns {Promise<Array<{secUid: string, uid: string, nickname: string, conversationId: string, conversationShortId: string, ticket: string}>>}
- */
-export async function listConversations(cookies, { onProgress } = {}) {
+/** 分页拉取 get_message_by_init，返回解析后的页面数组与 selfUid */
+async function fetchInitPages(cookieHeader, { onProgress, maxPages = MAX_PAGES } = {}) {
   const progress = onProgress || (() => {})
-  const cookieHeader = buildCookieHeader(cookies)
-
   const pages = []
   let cursor = '0'
   let selfUid = ''
-  for (let index = 0; index < MAX_PAGES; index += 1) {
+  for (let index = 0; index < maxPages; index += 1) {
     progress(`正在拉取会话列表（第 ${index + 1} 页）…`)
     const body = buildGetByUserInitBody({ cursor, sequenceId: 10001 + index })
     const bytes = await postImProtoRaw(GET_MESSAGE_BY_INIT_PATH, cookieHeader, body, '拉取会话列表')
@@ -90,11 +82,60 @@ export async function listConversations(cookies, { onProgress } = {}) {
     pages.push(parsed)
     if (!parsed.hasMore || !parsed.nextCursor) break
     cursor = parsed.nextCursor
-    if (index < MAX_PAGES - 1) await new Promise((resolve) => setTimeout(resolve, PAGE_INTERVAL_MS))
+    if (index < maxPages - 1) await new Promise((resolve) => setTimeout(resolve, PAGE_INTERVAL_MS))
   }
+  return { pages, selfUid }
+}
+
+/**
+ * 拉取收件箱总览（续火执行器用）：
+ * selfUid + 按对方 sec_uid 索引的会话信息（含最近一条自发消息时间，用于「今天已续过」过滤）
+ * @param {string} cookieHeader
+ * @returns {Promise<{ selfUid: string, bySecUid: Map<string, {conversationId: string, conversationShortId: string, ticket: string, lastSelfMessageMs: number, lastMessageMs: number}> }>}
+ */
+export async function fetchInboxOverview(cookieHeader) {
+  const { pages, selfUid } = await fetchInitPages(cookieHeader)
+  const bySecUid = new Map()
+  for (const page of pages) {
+    for (const conversation of page.conversations ?? []) {
+      if (Number(conversation.conversationType) !== 1) continue
+      const peer = (conversation.participants ?? []).find((user) => user.uid && user.uid !== String(selfUid))
+      if (!peer?.secUid) continue
+      let lastSelfMessageMs = 0
+      let lastMessageMs = 0
+      for (const message of conversation.messages ?? []) {
+        const ms = Number(message.clientCreateTime) || 0
+        if (ms > lastMessageMs) lastMessageMs = ms
+        if (message.sender === String(selfUid) && ms > lastSelfMessageMs) lastSelfMessageMs = ms
+      }
+      bySecUid.set(peer.secUid, {
+        conversationId: conversation.conversationId,
+        conversationShortId: conversation.conversationShortId,
+        ticket: conversation.ticket,
+        lastSelfMessageMs,
+        lastMessageMs,
+      })
+    }
+  }
+  return { selfUid, bySecUid }
+}
+
+/**
+ * 拉取账号会话列表中出现过的用户（昵称通过 profile 接口逐个补全）
+ * @param {Array} cookies Cookie-Editor JSON 数组
+ * @param {{ onProgress?: (msg: string) => void }} [options]
+ * @returns {Promise<Array<{secUid: string, uid: string, nickname: string, conversationId: string, conversationShortId: string, ticket: string}>>}
+ */
+export async function listConversations(cookies, { onProgress } = {}) {
+  const progress = onProgress || (() => {})
+  const cookieHeader = buildCookieHeader(cookies)
+
+  const { pages, selfUid } = await fetchInitPages(cookieHeader, { onProgress: progress })
   if (pages.length >= MAX_PAGES) progress(`已达 ${MAX_PAGES} 页上限，仅返回最近的部分会话`)
 
-  if (!selfUid) selfUid = getSelfUidFromCookies(cookies)
+  if (!selfUid) {
+    throw new DouyinApiError('未能从会话列表响应中识别当前账号 uid', { kind: 'api' })
+  }
   let people = extractPeople(pages, selfUid)
   if (people.length === 0) {
     throw new DouyinApiError('没有解析到可选择的 1v1 会话（该账号可能没有私信记录）', { kind: 'api' })

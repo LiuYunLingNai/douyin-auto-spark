@@ -120,7 +120,19 @@ message InitData {
 
 message ConvBlock {
   ConvInfo info = 1;
-  // 2: 该会话的最近消息（不需要，解析时跳过）
+  repeated ConvMessage messages = 2;  // 该会话最近的消息
+}
+
+message ConvMessage {
+  string conversation_id = 1;
+  int32 conversation_type = 2;
+  int64 server_message_id = 3;
+  int64 create_time = 4;              // 内部纪元（勿用）
+  int64 conversation_short_id = 5;
+  int32 message_type = 6;             // 7=文本
+  int64 sender = 7;                   // 发送者 uid
+  string content = 8;
+  int64 client_create_time = 10;      // 毫秒时间戳（真实时间）
 }
 
 message ConvInfo {
@@ -365,6 +377,12 @@ export function parseGetByUserInitResponse(bytes) {
       participants: (info.participants?.user ?? []).map((user) => ({
         uid: String(user.user_id ?? ''),
         secUid: String(user.sec_uid ?? ''),
+      })),
+      // 该会话最近消息（用于「今天已续过」判断），按时间升序返回
+      messages: (block.messages ?? []).map((message) => ({
+        sender: String(message.sender ?? ''),
+        clientCreateTime: String(message.client_create_time ?? '0'),
+        messageType: Number(message.message_type ?? 0),
       })),
     })
   }

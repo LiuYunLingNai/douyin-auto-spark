@@ -22,10 +22,10 @@ import {
   createConversation,
   fetchUserProfile,
   getCookieValue,
-  getSelfUidFromCookies,
   randomDelay,
   sendTextMessage,
 } from './douyin-api.js'
+import { fetchInboxOverview } from './conversation-api.js'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -55,9 +55,9 @@ export async function runSpark({ userId, accountName } = {}) {
 
   for (const account of accounts) {
     try {
-      const { sent: accountSent, renames } = await runAccount(account, config, yiyans)
+      const { sent: accountSent, renames, skipped } = await runAccount(account, config, yiyans)
       sent += accountSent
-      successes.push({ userId: account.userId, accountName: account.name, sent: accountSent, renames })
+      successes.push({ userId: account.userId, accountName: account.name, sent: accountSent, renames, skipped })
     } catch (error) {
       failures.push({
         userId: account.userId,
@@ -84,8 +84,9 @@ async function runAccount(account, config, yiyans) {
     throw new Error('Cookie 中缺少 sessionid，请重新导出完整 Cookie 并修改账号')
   }
 
-  // 解析/补全账号自身 uid（会话创建需要）
-  let selfUid = account.selfUid || getSelfUidFromCookies(account.rawCookies)
+  // 拉取收件箱总览：拿 selfUid（修会话创建）+ 补全目标会话信息 + 「今天已续过」过滤依据
+  const { selfUid: inboxSelfUid, bySecUid } = await fetchInboxOverview(cookieHeader)
+  const selfUid = inboxSelfUid || account.selfUid
   if (selfUid && selfUid !== account.selfUid) {
     await updateAccountSelfUid(account.id, selfUid).catch(() => {})
   }
@@ -93,52 +94,75 @@ async function runAccount(account, config, yiyans) {
   const webid = getCookieValue(account.rawCookies, 's_v_web_id')
   const uifid = getCookieValue(account.rawCookies, 'UIFID')
   const templateB64 = config.im?.templateB64 || undefined
+  const skipIfSentToday = config.send?.skipIfSentToday !== false
   const targets = await listTargets(account.id)
   if (targets.length === 0) {
-    throw new Error('该账号尚未添加续火目标，请发送 #抖音好友列表 <分享链接>')
+    throw new Error('该账号尚未添加续火目标，请发送 #抖音添加好友 在网页中拉取会话列表选择')
   }
 
   const needsYiyan = !account.messageTemplate || /\{\{\s*(yiyan|from)\s*\}\}/.test(account.messageTemplate)
   const targetErrors = []
   const renames = []
+  const skipped = []
   let sent = 0
   let firstTarget = true
 
   for (const target of targets) {
-    // 目标间随机延时，降低风控概率
-    if (firstTarget) firstTarget = false
-    else await randomDelay(Number(config.send?.minIntervalSec) || 3, Number(config.send?.maxIntervalSec) || 8)
-
     try {
-      // 1. 刷新昵称（前台展示用 ID->昵称 映射，变更自动更新）
-      const profile = await fetchUserProfile(cookieHeader, target.secUid, { webid, uifid })
-      if (profile.nickname && profile.nickname !== target.nickname) {
-        const oldName = target.nickname || '（未知）'
-        await updateTargetProfile(target.id, { nickname: profile.nickname, uniqueId: profile.uniqueId, avatar: profile.avatar })
-        renames.push(`${oldName} 已改名为 ${profile.nickname}`)
-        target.nickname = profile.nickname
-        logger.info(`[${account.name}] 目标昵称变更：${oldName} -> ${profile.nickname}`)
+      // 0. 今天已经发过的直接跳过（火花每天只需发一次）
+      const inboxEntry = bySecUid.get(target.secUid)
+      if (skipIfSentToday && inboxEntry?.lastSelfMessageMs && isToday(inboxEntry.lastSelfMessageMs)) {
+        skipped.push(target.nickname || target.uniqueId || target.secUid.slice(0, 12))
+        logger.info(`[${account.name}] 今天已续过，跳过：${target.nickname || target.secUid.slice(0, 12)}`)
+        continue
       }
 
-      // 2. 补全会话信息（conversation_id 缺失时创建）
-      if (!target.conversationId) {
-        const created = await createConversation(cookieHeader, {
-          receiverUid: profile.uid,
-          senderUid: selfUid || undefined,
-          templateB64,
-        })
-        if (!selfUid) {
-          selfUid = inferSelfUid(created.conversationId, profile.uid) || created.selfUid
-          if (selfUid) await updateAccountSelfUid(account.id, selfUid).catch(() => {})
+      // 目标间随机延时，降低风控概率
+      if (firstTarget) firstTarget = false
+      else await randomDelay(Number(config.send?.minIntervalSec) || 3, Number(config.send?.maxIntervalSec) || 8)
+
+      // 1. 刷新昵称/抖音号/头像（前台展示用 ID->昵称 映射，变更自动更新）
+      const profile = await fetchUserProfile(cookieHeader, target.secUid, { webid, uifid })
+      if ((profile.nickname && profile.nickname !== target.nickname)
+        || (profile.uniqueId && profile.uniqueId !== target.uniqueId)
+        || (profile.avatar && profile.avatar !== target.avatar)) {
+        const oldName = target.nickname || '（未知）'
+        await updateTargetProfile(target.id, { nickname: profile.nickname || target.nickname, uniqueId: profile.uniqueId || target.uniqueId, avatar: profile.avatar || target.avatar })
+        if (profile.nickname && profile.nickname !== target.nickname) {
+          renames.push(`${oldName} 已改名为 ${profile.nickname}`)
+          target.nickname = profile.nickname
+          logger.info(`[${account.name}] 目标昵称变更：${oldName} -> ${profile.nickname}`)
         }
-        await updateTargetConversation(target.id, {
-          uid: profile.uid,
-          conversationId: created.conversationId,
-          conversationShortId: created.conversationShortId,
-        })
-        target.conversationId = created.conversationId
-        target.conversationShortId = created.conversationShortId
-        logger.info(`[${account.name}] 已创建会话：${target.nickname}（${target.secUid.slice(0, 12)}…）`)
+      }
+
+      // 2. 补全会话信息：优先用收件箱里已有的会话（避免对已有会话调用 create 报 INVALID_REQUEST），
+      //    收件箱里没有的（陌生人）才走 createConversation
+      if (!target.conversationId) {
+        if (inboxEntry) {
+          await updateTargetConversation(target.id, {
+            uid: profile.uid,
+            conversationId: inboxEntry.conversationId,
+            conversationShortId: inboxEntry.conversationShortId,
+            ticket: inboxEntry.ticket,
+          })
+          target.conversationId = inboxEntry.conversationId
+          target.conversationShortId = inboxEntry.conversationShortId
+          logger.info(`[${account.name}] 已从收件箱补全会话：${target.nickname || target.secUid.slice(0, 12)}`)
+        } else {
+          const created = await createConversation(cookieHeader, {
+            receiverUid: profile.uid,
+            senderUid: selfUid || undefined,
+            templateB64,
+          })
+          await updateTargetConversation(target.id, {
+            uid: profile.uid,
+            conversationId: created.conversationId,
+            conversationShortId: created.conversationShortId,
+          })
+          target.conversationId = created.conversationId
+          target.conversationShortId = created.conversationShortId
+          logger.info(`[${account.name}] 已创建会话：${target.nickname}（${target.secUid.slice(0, 12)}…）`)
+        }
       }
 
       // 3. 发送消息（后台全程按 ID 寻址，与昵称无关）
@@ -169,14 +193,12 @@ async function runAccount(account, config, yiyans) {
   if (targetErrors.length > 0) {
     logger.warn(`[${account.name}] 部分目标发送失败：\n${targetErrors.join('\n')}`)
   }
-  return { sent, renames }
+  return { sent, renames, skipped }
 }
 
-/** 从 conversation_id（0:1:uidA:uidB）中推断自己的 uid */
-function inferSelfUid(conversationId, peerUid) {
-  const segments = String(conversationId).split(':')
-  const candidates = segments.slice(2).filter(Boolean)
-  return candidates.find((uid) => uid !== String(peerUid)) || ''
+/** 毫秒时间戳是否在今天（东八区） */
+function isToday(ms) {
+  return dayjs(Number(ms)).tz('Asia/Shanghai').isSame(dayjs().tz('Asia/Shanghai'), 'day')
 }
 
 async function sendSuccessEmails(smtp, successes) {

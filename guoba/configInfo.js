@@ -86,6 +86,13 @@ const schemas = [
     defaultValue: 8,
   },
   {
+    field: 'send.skipIfSentToday',
+    label: '跳过今天已续火的会话',
+    bottomHelpMessage: '开启后，续火前会检查会话最近消息，今天已经给对方发过的直接跳过（火花每天只需发一次，重复发无意义）。',
+    component: 'Switch',
+    defaultValue: true,
+  },
+  {
     field: 'im.templateB64',
     label: '自定义 IM 请求模板',
     bottomHelpMessage: '一般留空。内置私信请求模板失效时，浏览器 F12 抓取一次真实 message/send 请求体（protobuf 二进制）转 Base64 后粘贴到这里。',

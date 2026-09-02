@@ -43,15 +43,8 @@ export function getCookieValue(cookies, name) {
   return found ? String(found.value) : ''
 }
 
-/** 从 cookie 解析当前登录用户 uid：uid_tt 是 uid 的十六进制表示 */
-export function getSelfUidFromCookies(cookies) {
-  const uidTt = getCookieValue(cookies, 'uid_tt')
-  if (uidTt && /^[0-9a-fA-F]+$/.test(uidTt)) {
-    const uid = BigInt(`0x${uidTt}`).toString(10)
-    if (uid !== '0') return uid
-  }
-  return ''
-}
+// 注意：Cookie 里的 uid_tt 不是 uid 的十六进制（实测转换结果是乱码数字），
+// 自己的 uid 只能从 get_message_by_init 响应（field 13）或会话 ID 推断，见 conversation-api.js
 
 function imHeaders(cookieHeader) {
   return {

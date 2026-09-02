@@ -39,7 +39,9 @@ async function spark(e) {
   try {
     const result = await runSpark(allUsers ? {} : { userId: e.user_id, accountName: argument || undefined })
     const renameLines = result.successes.flatMap((item) => (item.renames ?? []).map((name) => `昵称变更：${name}`))
+    const skipLines = result.successes.flatMap((item) => (item.skipped ?? []).map((name) => `已续过跳过：${name}`))
     const lines = [`抖音续火完成：成功发送 ${result.sent} 条消息。`]
+    if (skipLines.length) lines.push(...skipLines)
     if (renameLines.length) lines.push(...renameLines)
     await e.reply(lines.join('\n'))
   } catch (error) {
@@ -83,6 +85,8 @@ async function sendScheduledResults({ successes = [], failures = [] }) {
       const sent = userResults.successes.reduce((total, item) => total + item.sent, 0)
       lines.push(`成功发送：${sent} 条`)
       lines.push(...userResults.successes.map((item) => `成功：${item.accountName}（${item.sent} 条）`))
+      const skippedNames = userResults.successes.flatMap((item) => item.skipped ?? [])
+      if (skippedNames.length) lines.push(...skippedNames.map((name) => `已续过跳过：${name}`))
       const renames = userResults.successes.flatMap((item) => item.renames ?? [])
       if (renames.length) lines.push(...renames.map((item) => `昵称变更：${item}`))
     }
