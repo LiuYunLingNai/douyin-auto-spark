@@ -6,10 +6,10 @@
 
 ## 特性
 
-- 多账号管理，Cookie 支持扫码登录或手动粘贴（Cookie-Editor JSON）
+- 多账号管理，Cookie 支持扫码登录（纯 API，无需浏览器）或手动粘贴（Cookie-Editor JSON）
 - 续火目标在添加/修改账号的网页中**一键拉取私信会话列表、点击勾选**（纯接口拉取，无需手动找 ID）
 - 目标按 **sec_uid** 存储与发送，昵称仅作前台展示映射，改名自动更新
-- 发送通道为抖音 Web 私信 API（`imapi.douyin.com`），发消息无需启动浏览器
+- 发送通道为抖音 Web 私信 API（`imapi.douyin.com`）
 - 内置 a_bogus 签名与 protobuf 请求模板；目标间随机延时降低风控
 - 定时任务（cron）+ 手动触发；成功/失败邮件通知；锅巴面板配置
 
@@ -22,15 +22,9 @@ git clone -b api --single-branch https://github.com/LiuYunLingNai/douyin-auto-sp
 pnpm install
 ```
 
-插件默认开启 `browser.preferSystem`，扫码登录时会自动探测并复用系统已安装的 Edge、Chrome 或 Chromium，无需额外下载浏览器。仅当系统没有安装任何浏览器时，才需要额外下载 Playwright 自带的 Chromium（不扫码、只粘贴 Cookie 的话可以不装）：
-
-```bash
-pnpm --dir plugins/douyin-id-spark exec playwright install chromium
-```
-
 首次启动会自动创建 `plugins/douyin-id-spark/config/config.yaml`，可在锅巴或该文件配置定时任务、默认消息、发送间隔、SMTP 和网页服务。
 
-**浏览器（Playwright）仅用于扫码登录这一步**——经实测，抖音现行登录（login.douyin.com）的二维码获取可以纯 API 完成，但扫码状态轮询（check_qrconnect）强制要求 mssdk 加密设备证明（JSVMP 保护），纯 API 无法复现，因此扫码登录保留无头浏览器一次性完成。发消息、拉会话列表、查昵称均为纯 API。若不需要扫码功能（只粘贴 Cookie JSON），可不安装 Playwright 浏览器。
+**全链路纯 API，无任何浏览器依赖**：扫码登录走抖音 PC 客户端 passport 接口（imdesktop.douyin.com，sign/qs 签名 + 指纹编码，移植自 jumpbyte-bot），发消息/拉会话列表/查昵称走 Web IM 接口（protobuf + a_bogus）。
 
 ## 使用流程
 

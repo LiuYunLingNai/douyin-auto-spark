@@ -3,16 +3,6 @@ schedule:
   enabled: true
   cron: "0 10 0 * * *"
 
-browser:
-  # 浏览器仅用于扫码登录获取 Cookie；发送消息走 API，不需要浏览器
-  # 开启后自动探测并复用系统已安装的 Edge/Chrome/Chromium，无需下载 Playwright 自带 Chromium
-  preferSystem: true
-  # 浏览器渠道，填 msedge 或 chrome 可自动定位系统已安装的浏览器；优先于自动探测
-  channel: ""
-  # 手动指定浏览器可执行文件路径，填写后优先于 channel
-  executablePath: ""
-  headless: true
-
 message:
   # 未设置消息模板时，是否在随机一言后附带出处
   includeSource: true

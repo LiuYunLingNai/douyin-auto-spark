@@ -17,40 +17,6 @@ const schemas = [
     componentProps: { placeholder: '0 10 8 * * *' },
   },
   {
-    field: 'browser.preferSystem',
-    label: '优先复用系统浏览器',
-    bottomHelpMessage: '浏览器仅用于扫码登录获取 Cookie（发送消息走 API）。开启后自动探测本机已安装的 Edge、Chrome 或 Chromium 并直接使用，无需下载 Playwright 自带 Chromium；探测不到时回落到自带 Chromium。下方渠道和路径填写后优先生效。',
-    component: 'Switch',
-    defaultValue: true,
-  },
-  {
-    field: 'browser.channel',
-    label: '浏览器渠道',
-    bottomHelpMessage: '选择 Edge 或 Chrome 时由 Playwright 自动定位系统已安装的浏览器，无需填写路径；留空则按上方开关自动探测。',
-    component: 'Select',
-    componentProps: {
-      options: [
-        { label: '不指定（自动探测或使用自带 Chromium）', value: '' },
-        { label: '系统 Edge', value: 'msedge' },
-        { label: '系统 Chrome', value: 'chrome' },
-      ],
-    },
-  },
-  {
-    field: 'browser.executablePath',
-    label: '浏览器路径',
-    bottomHelpMessage: '手动指定本机 Chrome 或 Edge 的可执行文件路径，填写后优先于上方浏览器渠道；一般留空即可。',
-    component: 'Input',
-    placeholder: '留空则按浏览器渠道自动定位',
-  },
-  {
-    field: 'browser.headless',
-    label: '无头模式',
-    bottomHelpMessage: '开启后浏览器在后台运行，不显示窗口；排查页面问题时可关闭。',
-    component: 'Switch',
-    defaultValue: true,
-  },
-  {
     field: 'message.includeSource',
     label: '一言附带出处',
     bottomHelpMessage: '未设置账号专属消息模板时，是否在随机一言后附带出处。',

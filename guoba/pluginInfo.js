@@ -6,5 +6,5 @@ export default {
   link: '',
   version: '1.0.0',
   icon: 'mdi:fire',
-  depends: ['playwright'],
+  depends: [],
 }

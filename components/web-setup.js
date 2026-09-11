@@ -1,12 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { chromium } from 'playwright'
-import { getBrowserLaunchOptions, getConfig, getPluginRoot } from './config.js'
+import { getConfig } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, listTargets, replaceTargets, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, validateTemplate } from './account-setup.js'
 import { listConversations } from './conversation-api.js'
+import { QrLoginSession } from './qr-login.js'
 
 const mountedRoutePrefix = '/douyin-id-spark'
 const standaloneRoutePrefix = '/douyin-id-spark'
@@ -132,7 +130,6 @@ function registerMountedRoutes() {
   app.post(`${webState.prefix}/api/scan/start/:token`, (req, res) => handleScanStart(req.params.token, res))
   app.post(`${webState.prefix}/api/scan/refresh/:token`, (req, res) => handleScanRefresh(req.params.token, res))
   app.post(`${webState.prefix}/api/scan/sms/:token`, (req, res) => handleScanSms(req.params.token, req.body, res))
-  app.get(`${webState.prefix}/api/scan/screenshot/:token`, (req, res) => handleScanScreenshot(req.params.token, res))
   app.get(`${webState.prefix}/api/scan/status/:token`, (req, res) => handleScanStatus(req.params.token, res))
 }
 
@@ -160,7 +157,6 @@ async function handleStandaloneRequest(req, res) {
   const scanStart = new RegExp(`^${webState.prefix}/api/scan/start/([a-f0-9]{64})$`).exec(url.pathname)
   const scanRefresh = new RegExp(`^${webState.prefix}/api/scan/refresh/([a-f0-9]{64})$`).exec(url.pathname)
   const scanSms = new RegExp(`^${webState.prefix}/api/scan/sms/([a-f0-9]{64})$`).exec(url.pathname)
-  const scanScreenshot = new RegExp(`^${webState.prefix}/api/scan/screenshot/([a-f0-9]{64})$`).exec(url.pathname)
   const scanStatus = new RegExp(`^${webState.prefix}/api/scan/status/([a-f0-9]{64})$`).exec(url.pathname)
   if (req.method === 'GET' && page) return handleSetupPage(page[1], res)
   if (req.method === 'POST' && api) return handleSetupSubmit(api[1], await readJsonBody(req), res)
@@ -168,7 +164,6 @@ async function handleStandaloneRequest(req, res) {
   if (req.method === 'POST' && scanStart) return handleScanStart(scanStart[1], res)
   if (req.method === 'POST' && scanRefresh) return handleScanRefresh(scanRefresh[1], res)
   if (req.method === 'POST' && scanSms) return handleScanSms(scanSms[1], await readJsonBody(req), res)
-  if (req.method === 'GET' && scanScreenshot) return handleScanScreenshot(scanScreenshot[1], res)
   if (req.method === 'GET' && scanStatus) return handleScanStatus(scanStatus[1], res)
   sendHtml(res, 404, renderMessagePage('页面不存在。'))
 }
@@ -260,23 +255,11 @@ async function handleScanSms(token, body, res) {
     if (!scan) throw new Error('扫码会话不存在，请重新获取二维码。')
     const code = String(body?.code || '').trim()
     if (!/^\d{4,8}$/.test(code)) throw new Error('短信验证码应为 4 到 8 位数字。')
-    await submitScanSmsCode(scan, code)
+    submitScanSmsCode(scan, code)
     sendJson(res, 200, { ok: true, message: '验证码已提交，请等待登录结果。' })
   } catch (error) {
     sendJson(res, 400, { ok: false, message: error.message || '提交短信验证码失败。' })
   }
-}
-
-function handleScanScreenshot(token, res) {
-  if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
-  const scan = scanSessions.get(token)
-  if (!scan?.screenshot) return sendJson(res, 404, { ok: false, message: '截图尚未生成。' })
-  res.writeHead(200, {
-    'Content-Type': 'image/png',
-    'Cache-Control': 'no-store',
-    'Content-Length': scan.screenshot.length,
-  })
-  res.end(scan.screenshot)
 }
 
 async function handleScanStatus(token, res) {
@@ -289,31 +272,37 @@ async function handleScanStatus(token, res) {
   }
 }
 
+// ===== 扫码登录（纯 API，无浏览器）：移植自 jumpbyte-bot 的抖音 PC 客户端 passport 流程 =====
+
 async function startScanSession(token, { force = false } = {}) {
   const current = scanSessions.get(token)
-  if (!force && current?.status === 'waiting' && current.qr) return { status: current.status, qr: current.qr }
-
-  await closeScanSession(token)
-  const config = getConfig()
-  let browser
-  let context
-  let page
-  try {
-    browser = await chromium.launch(getBrowserLaunchOptions(config))
-    context = await browser.newContext()
-    page = await context.newPage()
-  } catch (error) {
-    await context?.close().catch(() => {})
-    await browser?.close().catch(() => {})
-    throw error
+  if (!force && current && ['waiting', 'scanned', 'sms'].includes(current.status) && current.qr) {
+    return { status: current.status, qr: current.qr, message: current.message }
   }
-  const scan = { token, browser, context, page, status: 'waiting', qr: '', cookies: undefined, error: undefined, cookieFingerprint: '', screenshotLogged: false, screenshot: undefined, smsRequested: false, smsCodeSubmitted: false, startedAt: Date.now() }
+  await closeScanSession(token)
+  const scan = new QrLoginSession()
+  scan.status = 'waiting'
   scanSessions.set(token, scan)
   try {
-    await page.goto('https://www.douyin.com/chat', { waitUntil: 'domcontentloaded', timeout: 30000 })
-    scan.qr = await captureDouyinQr(page)
-    await saveScanScreenshot(scan)
-    return { status: scan.status, qr: scan.qr }
+    // start() 后台运行：ttwidCheck -> 取二维码 -> 轮询 check_qrconnect
+    const qrPromise = (async () => {
+      await scan.ttwidCheck()
+      const qr = await scan.call('/passport/web/get_qrcode/', { next: 'https://www.douyin.com', need_logo: 'false', need_short_url: 'false' }, null)
+      const data = qr?.data ?? {}
+      if (!data.qrcode || Number(data.error_code) !== 0) {
+        throw new Error(`获取二维码失败：${data.description || qr?.message || '未知错误'}`)
+      }
+      scan.qr = `data:image/png;base64,${data.qrcode}`
+      scan.token = String(data.token)
+      scan.expireAt = Number(data.expire_time) ? Number(data.expire_time) * 1000 : Date.now() + 180000
+    })()
+    await qrPromise
+    scan.runLoop().catch((error) => {
+      scan.status = 'error'
+      scan.error = error.message || '扫码登录失败'
+    })
+    logger.info('[抖音续火] 扫码登录二维码已通过 API 获取')
+    return { status: 'waiting', qr: scan.qr }
   } catch (error) {
     scan.status = 'error'
     scan.error = error.message
@@ -322,224 +311,32 @@ async function startScanSession(token, { force = false } = {}) {
   }
 }
 
-async function captureDouyinQr(page) {
-  // 聊天页未登录时会直接显示扫码登录弹窗，二维码通常以内联 data URL 提供。
-  const qr = page.locator('img[aria-label="二维码"], img[alt="二维码"], img[src^="data:image"]')
-  let count = 0
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    count = await qr.count()
-    if (count > 0) break
-    await page.waitForTimeout(500)
-  }
-  if (count === 0) {
-    const bodyText = await page.locator('body').innerText({ timeoutMs: 5000 }).catch(() => '')
-    if (/验证码|安全验证|访问验证/.test(bodyText)) {
-      throw new Error('抖音当前要求完成安全验证，暂时无法获取登录二维码。请稍后重试或使用 Cookie 文本文件。')
-    }
-    throw new Error('未找到抖音登录二维码，请确认浏览器可以正常访问 www.douyin.com/chat。')
-  }
-
-  const info = await qr.first().evaluate((element) => {
-    const rect = element.getBoundingClientRect()
-    return {
-      src: element.currentSrc || element.getAttribute('src') || '',
-      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-    }
-  })
-  if (info.src.startsWith('data:image/')) return info.src
-
-  const margin = 16
-  const clip = {
-    x: Math.max(0, info.rect.x - margin),
-    y: Math.max(0, info.rect.y - margin),
-    width: info.rect.width + margin * 2,
-    height: info.rect.height + margin * 2,
-  }
-  const image = await page.screenshot({ type: 'png', clip })
-  return `data:image/png;base64,${image.toString('base64')}`
-}
-
 async function getScanStatus(token) {
   const scan = scanSessions.get(token)
   if (!scan) return { status: 'idle' }
-  if (scan.status === 'waiting') {
-    try {
-      // 扫码回调可能把 Cookie 写入 passport.douyin.com 等子域，因此读取整个上下文。
-      const cookies = await scan.context.cookies()
-      await maybeRequestSmsVerification(scan)
-      const fingerprint = cookies
-        .map((cookie) => `${cookie.domain}:${cookie.name}:${String(cookie.value || '').length}`)
-        .sort()
-        .join('|')
-      if (fingerprint !== scan.cookieFingerprint) {
-        scan.cookieFingerprint = fingerprint
-        if (cookies.some((cookie) => typeof cookie.domain === 'string' && /(^|\.)douyin\.com$/i.test(cookie.domain))) {
-          logger.info(`[抖音续火] 扫码会话 Cookie 已更新：${cookies.length} 条`)
-          await saveScanScreenshot(scan)
-        }
-      }
-      if (Date.now() - (scan.lastScreenshotAt || 0) >= 5000) await saveScanScreenshot(scan)
-      // 未登录页面也可能存在 csrf 或空 Cookie，只把真实的非空会话 Cookie 视为登录成功。
-      const hasSessionCookie = hasDouyinSessionCookie(cookies)
-      if (hasSessionCookie) {
-        // 登录回调可能分多次写入 Cookie，稍等后再读取一次，避免保存半套 Cookie。
-        await scan.page?.waitForTimeout(1000).catch(() => {})
-      }
-      const settledCookies = hasSessionCookie ? await scan.context.cookies() : cookies
-      if (hasDouyinSessionCookie(settledCookies) || await looksLoggedInPage(scan.page, settledCookies)) {
-        scan.cookies = await scan.context.cookies()
-        scan.status = 'success'
-        await saveScanScreenshot(scan)
-        await closeScanBrowser(scan)
-      }
-    } catch (error) {
-      scan.status = 'error'
-      scan.error = error.message || '读取登录状态失败。'
-    }
-  }
   if (scan.status === 'error') {
     const message = scan.error || '扫码登录失败。'
     await closeScanSession(token)
     return { status: 'error', message }
   }
   if (scan.status === 'success') return { status: 'success', cookies: scan.cookies }
-  if (scan.smsRequested && !scan.smsCodeSubmitted) return { status: 'sms', message: '已点击接收短信验证码，请输入短信验证码。' }
-  return { status: 'waiting' }
+  if (scan.status === 'sms') return { status: 'sms', message: scan.message || '请输入短信验证码。' }
+  if (scan.status === 'scanned') return { status: 'waiting', message: scan.message || '已扫码，请在抖音 App 上确认。' }
+  return { status: 'waiting', message: scan.message || '' }
 }
 
-async function maybeRequestSmsVerification(scan) {
-  if (scan.smsRequested || !scan.page || scan.page.isClosed()) return
-  try {
-    // 身份验证组件可能位于 iframe，逐个 frame 查找可见选项。
-    for (const frame of scan.page.frames()) {
-      const receive = frame.getByText(/^\s*接收短信验证码\s*$/).last()
-      if (!await receive.isVisible().catch(() => false)) continue
-      const row = receive.locator('xpath=..')
-      if (await row.isVisible().catch(() => false)) {
-        await row.click({ force: true, timeout: 5000 })
-      } else {
-        await receive.click({ force: true, timeout: 5000 })
-      }
-      scan.smsRequested = true
-      logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
-      await saveScanScreenshot(scan)
-      return
-    }
-  } catch (error) {
-    logger.warn(`[抖音续火] 自动点击接收短信验证码失败：${error.message}`)
-  }
-}
-
-async function submitScanSmsCode(scan, code) {
-  if (!scan.page || scan.page.isClosed()) throw new Error('扫码浏览器已关闭，请重新获取二维码。')
-  const frames = scan.page.frames()
-  let codeInput
-  let inputFrame
-  for (const frame of frames) {
-    const candidates = frame.locator('#button-input:visible')
-    const count = await candidates.count()
-    if (!count) continue
-    codeInput = candidates.nth(count - 1)
-    inputFrame = frame
-    break
-  }
-  if (!codeInput) {
-    throw new Error('未找到短信验证码输入框，请确认抖音页面已显示验证码输入框。')
-  }
-  await codeInput.scrollIntoViewIfNeeded().catch(() => {})
-  await codeInput.click({ force: true, timeout: 5000 })
-  await codeInput.fill(String(code))
-  let actualValue = await codeInput.evaluate((element) => element.value || '').catch(() => '')
-  if (actualValue !== String(code)) {
-    await codeInput.click({ force: true, timeout: 5000 })
-    await codeInput.fill('')
-    await codeInput.pressSequentially(String(code), { delay: 100 })
-    actualValue = await codeInput.evaluate((element) => element.value || '').catch(() => '')
-  }
-  if (actualValue !== String(code)) throw new Error('验证码未能填入抖音页面，请重新提交。')
-  await saveScanScreenshot(scan)
-  logger.info('[抖音续火] 已将短信验证码填入抖音页面')
-  await clickSmsSubmit(inputFrame)
-  scan.smsCodeSubmitted = true
-  await saveScanScreenshot(scan)
-}
-
-async function clickSmsSubmit(frame) {
-  if (!frame) throw new Error('未找到验证码提交按钮。')
-  const submit = frame.getByRole('button', { name: /验证|登录|确认|提交/ }).first()
-  if (await submit.isVisible().catch(() => false)) {
-    await submit.click({ force: true })
-    return
-  }
-  const text = frame.getByText(/^\s*验证\s*$/).last()
-  if (!await text.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
-  await text.click({ force: true, timeout: 5000 })
-}
-
-function hasDouyinSessionCookie(cookies) {
-  const sessionCookieNames = [
-    'sessionid', 'sessionid_ss', 'sid_guard', 'sid_tt',
-    'uid_tt', 'uid_tt_ss', 'passport_auth_status', 'passport_auth_status_ss',
-  ]
-  return cookies.some((cookie) =>
-    sessionCookieNames.includes(cookie.name)
-    && typeof cookie.value === 'string'
-    && cookie.value.trim().length >= 8,
-  )
-}
-
-async function saveScanScreenshot(scan) {
-  if (!scan.page || scan.page.isClosed()) return
-  try {
-    const directory = path.join(getPluginRoot(), 'artifacts', 'scan')
-    const file = path.join(directory, `scan-${scan.token}.png`)
-    await fs.mkdir(directory, { recursive: true })
-    const screenshot = await scan.page.screenshot({ path: file, fullPage: true })
-    scan.screenshot = screenshot
-    scan.screenshotVersion = (scan.screenshotVersion || 0) + 1
-    scan.lastScreenshotAt = Date.now()
-    if (!scan.screenshotLogged) {
-      scan.screenshotLogged = true
-      logger.info('[抖音续火] 扫码页面截图已更新')
-    }
-  } catch (error) {
-    logger.warn(`[抖音续火] 保存扫码页面截图失败：${error.message}`)
-  }
-}
-
-async function looksLoggedInPage(page, cookies) {
-  if (!page || page.isClosed()) return false
-  const hasDouyinCookie = cookies.some((cookie) =>
-    typeof cookie.domain === 'string'
-    && /(^|\.)douyin\.com$/i.test(cookie.domain)
-    && typeof cookie.value === 'string'
-    && cookie.value.trim(),
-  )
-  if (!hasDouyinCookie) return false
-  try {
-    const prompt = page.getByText('登录后免费畅享高清视频', { exact: false })
-    if (await prompt.isVisible().catch(() => false)) return false
-    return await page.locator('input[placeholder="搜索"]').first().isVisible().catch(() => false)
-  } catch {
-    return false
-  }
+function submitScanSmsCode(scan, code) {
+  if (!scan || typeof scan.submitSmsCode !== 'function') throw new Error('扫码会话不存在，请重新获取二维码。')
+  if (scan.status !== 'sms') throw new Error('当前不在短信验证环节。')
+  scan.submitSmsCode(String(code))
+  logger.info('[抖音续火] 已提交短信验证码')
 }
 
 async function closeScanSession(token) {
   const scan = scanSessions.get(token)
   if (!scan) return
   scanSessions.delete(token)
-  await closeScanBrowser(scan)
-}
-
-async function closeScanBrowser(scan) {
-  const context = scan.context
-  const browser = scan.browser
-  scan.context = undefined
-  scan.browser = undefined
-  scan.page = undefined
-  await context?.close().catch(() => {})
-  await browser?.close().catch(() => {})
+  scan.cancel?.()
 }
 
 function sendHtml(res, status, body) {
@@ -874,6 +671,8 @@ function renderSetupPage(token, initial, editing) {
               scanStatus.textContent = result.message || '请输入短信验证码。';
             } else if (result.status === 'error') {
               throw new Error(result.message || '扫码登录失败');
+            } else if (result.message) {
+              scanStatus.textContent = result.message;
             }
           } catch (error) {
             clearInterval(scanTimer);
