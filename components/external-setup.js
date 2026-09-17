@@ -1,5 +1,6 @@
 // 外置配置服务流程（对齐 douyin-spark-login 服务协议：HTTP start + WS listen，无密钥签名）
 // 服务端见 https://github.com/wei-la-ya/douyin-spark-login
+import { randomBytes } from 'node:crypto'
 import WebSocket from 'ws'
 import { getConfig } from './config.js'
 import {
@@ -28,7 +29,7 @@ export function externalBaseUrl() {
  */
 export async function externalSetupFlow({ e, accountId, actionText }) {
   const base = externalBaseUrl()
-  const auth = `${e.user_id}-${e.self_id || 'bot'}-${accountId ?? 0}-${Date.now()}`
+  const auth = randomBytes(16).toString('hex')  // 随机会话标识，链接不暴露用户 ID
 
   // 编辑模式：把现有账号数据带给外置服务做页面初始值
   const initial = {}
