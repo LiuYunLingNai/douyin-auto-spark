@@ -390,3 +390,65 @@ function pickBizParams(bp) {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+// ===================== 手机号短信验证码登录（备选方案，参考 jumpbyte-bot smslogin.go） =====================
+
+/** 手机号归一化为 '+86 <号码>'（服务端要求国家码与号码间有空格） */
+export function formatMobile(raw) {
+  let s = String(raw).replace(/[\s\-()]/g, '')
+  if (!s) return ''
+  if (s.startsWith('+86')) return '+86 ' + s.slice(3)
+  if (s.startsWith('+')) return s
+  if (s.startsWith('86') && s.length > 11) return '+86 ' + s.slice(2)
+  return '+86 ' + s
+}
+
+/** 手机号 + 短信验证码登录会话（无需扫码）。status: idle -> sms_sent -> success/error */
+export class SmsLoginSession extends QrLoginSession {
+  constructor() {
+    super()
+    this.mobile = ''
+    this.mobileMasked = ''
+  }
+
+  async sendCode(mobile) {
+    mobile = formatMobile(mobile)
+    if (!mobile) throw new Error('手机号为空')
+    await this.ttwidCheck()
+    this.mobile = mobile
+    const resp = await this.call('/passport/web/send_code/', null, {
+      mix_mode: '1',
+      mobile: xor5(mobile),
+      type: xor5('24'),
+      is6Digits: '1',
+      fixed_mix_mode: '1',
+    })
+    if (resp?.message !== 'success') {
+      throw new Error(`发送验证码失败：${resp?.data?.description || resp?.message || '未知错误'}`)
+    }
+    this.mobileMasked = String(resp?.data?.mobile || mobile)
+    this.status = 'sms_sent'
+    this.message = `已向 ${this.mobileMasked} 发送短信验证码`
+  }
+
+  async submitCode(code) {
+    if (this.status !== 'sms_sent' || !this.mobile) throw new Error('请先发送短信验证码')
+    code = String(code).trim()
+    if (!/^\d{4,8}$/.test(code)) throw new Error('验证码格式不正确')
+    const resp = await this.call('/passport/web/sms_login/', null, {
+      service: 'https://www.douyin.com',
+      mix_mode: '1',
+      mobile: xor5(this.mobile),
+      code: xor5(code),
+      fixed_mix_mode: '1',
+      login_only: 'true',
+    })
+    if (resp?.message !== 'success') {
+      throw new Error(`验证码登录失败：${resp?.data?.description || resp?.message || '未知错误'}`)
+    }
+    if (!this.jar.has('sessionid')) throw new Error('登录成功但未拿到 sessionid')
+    this.cookies = [...this.jar.store].map(([name, value]) => ({ name, value, domain: '.douyin.com', path: '/' }))
+    this.status = 'success'
+    this.message = '登录成功'
+  }
+}

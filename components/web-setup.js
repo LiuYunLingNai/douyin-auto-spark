@@ -4,7 +4,7 @@ import { getConfig } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, listTargets, replaceTargets, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, validateTemplate } from './account-setup.js'
 import { listConversations } from './conversation-api.js'
-import { QrLoginSession } from './qr-login.js'
+import { QrLoginSession, SmsLoginSession } from './qr-login.js'
 
 const mountedRoutePrefix = '/douyin-id-spark'
 const standaloneRoutePrefix = '/douyin-id-spark'
@@ -180,6 +180,8 @@ function registerMountedRoutes() {
   app.post(`${webState.prefix}/api/scan/start/:token`, (req, res) => handleScanStart(req.params.token, res))
   app.post(`${webState.prefix}/api/scan/refresh/:token`, (req, res) => handleScanRefresh(req.params.token, res))
   app.post(`${webState.prefix}/api/scan/sms/:token`, (req, res) => handleScanSms(req.params.token, req.body, res))
+  app.post(`${webState.prefix}/api/sms/send/:token`, (req, res) => handleSmsSend(req.params.token, req.body, res))
+  app.post(`${webState.prefix}/api/sms/submit/:token`, (req, res) => handleSmsSubmit(req.params.token, req.body, res))
   app.get(`${webState.prefix}/api/scan/status/:token`, (req, res) => handleScanStatus(req.params.token, res))
 }
 
@@ -214,6 +216,10 @@ async function handleStandaloneRequest(req, res) {
   if (req.method === 'POST' && scanStart) return handleScanStart(scanStart[1], res)
   if (req.method === 'POST' && scanRefresh) return handleScanRefresh(scanRefresh[1], res)
   if (req.method === 'POST' && scanSms) return handleScanSms(scanSms[1], await readJsonBody(req), res)
+  const smsSend = new RegExp(`^${webState.prefix}/api/sms/send/([a-f0-9]{64})$`).exec(url.pathname)
+  const smsSubmit = new RegExp(`^${webState.prefix}/api/sms/submit/([a-f0-9]{64})$`).exec(url.pathname)
+  if (req.method === 'POST' && smsSend) return handleSmsSend(smsSend[1], await readJsonBody(req), res)
+  if (req.method === 'POST' && smsSubmit) return handleSmsSubmit(smsSubmit[1], await readJsonBody(req), res)
   if (req.method === 'GET' && scanStatus) return handleScanStatus(scanStatus[1], res)
   sendHtml(res, 404, renderMessagePage('页面不存在。'))
 }
@@ -227,6 +233,38 @@ async function handleSetupPage(token, res) {
   } catch (error) {
     logger.error('[抖音续火] 读取网页配置失败', error)
     sendHtml(res, 500, renderMessagePage('读取配置失败，请重新发送命令。'))
+  }
+}
+
+const smsLoginSessions = new Map()
+
+async function handleSmsSend(token, body, res) {
+  if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
+  const mobile = String(body?.mobile || '').trim()
+  if (!mobile) return sendJson(res, 400, { ok: false, message: '请输入手机号' })
+  const old = smsLoginSessions.get(token)
+  if (old) old.cancelled = true
+  const session = new SmsLoginSession()
+  smsLoginSessions.set(token, session)
+  try {
+    await session.sendCode(mobile)
+    sendJson(res, 200, { ok: true, status: session.status, message: session.message })
+  } catch (error) {
+    smsLoginSessions.delete(token)
+    sendJson(res, 400, { ok: false, message: error.message || '发送验证码失败' })
+  }
+}
+
+async function handleSmsSubmit(token, body, res) {
+  if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
+  const session = smsLoginSessions.get(token)
+  if (!session) return sendJson(res, 400, { ok: false, message: '请先发送短信验证码' })
+  try {
+    await session.submitCode(String(body?.code || ''))
+    logger.info('[抖音续火] 短信登录成功')
+    sendJson(res, 200, { ok: true, status: 'success', cookies: session.cookies, message: '短信登录成功，Cookie 已填入下方文本框，请继续提交。' })
+  } catch (error) {
+    sendJson(res, 400, { ok: false, message: error.message || '登录失败' })
   }
 }
 
@@ -592,6 +630,18 @@ function renderSetupPage(token, initial, editing) {
           <button id="smsSubmit" type="button">提交验证码</button>
         </div>
       </div>
+      <div class="scan">
+        <span class="hint">扫码不成功？也可以用绑定的手机号短信验证码登录：</span>
+        <div class="scan-actions">
+          <input id="smsMobile" inputmode="tel" autocomplete="tel" placeholder="手机号（登录抖音的）" style="max-width:220px">
+          <button id="smsSend" type="button">发送验证码</button>
+        </div>
+        <div id="smsLoginRow" class="sms">
+          <input id="smsLoginCode" inputmode="numeric" autocomplete="one-time-code" placeholder="输入短信验证码">
+          <button id="smsLoginSubmit" type="button">短信登录</button>
+        </div>
+        <span id="smsStatus" class="hint"></span>
+      </div>
       <label>Cookie JSON<textarea id="cookieText" class="cookie" ${editing ? '' : 'required'} placeholder="${editing ? '留空则保留当前 Cookie；需要更新时粘贴或选择 .txt 文件。' : '粘贴 Cookie-Editor 导出的 JSON 数组，或先选择 .txt 文件。'}"></textarea></label>
       <p id="status"></p>
       <button id="submit" type="submit">${editing ? '保存修改' : '添加账号'}</button>
@@ -754,6 +804,47 @@ function renderSetupPage(token, initial, editing) {
         smsSubmit.disabled = false;
       }
     });
+    // ===== 手机号短信验证码登录 =====
+    const smsMobile = document.querySelector('#smsMobile');
+    const smsSend = document.querySelector('#smsSend');
+    const smsLoginRow = document.querySelector('#smsLoginRow');
+    const smsLoginCode = document.querySelector('#smsLoginCode');
+    const smsLoginSubmit = document.querySelector('#smsLoginSubmit');
+    const smsStatus = document.querySelector('#smsStatus');
+    smsSend.addEventListener('click', async () => {
+      const mobile = smsMobile.value.trim();
+      if (!/^\+?[\d\s-]{6,20}$/.test(mobile)) { smsStatus.textContent = '请输入正确的手机号'; return; }
+      smsSend.disabled = true;
+      smsStatus.textContent = '正在发送验证码…';
+      try {
+        const response = await fetch('${webState.prefix}/api/sms/send/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mobile }) });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.message || '发送失败');
+        smsStatus.textContent = data.message || '验证码已发送';
+        smsLoginRow.style.display = 'grid';
+      } catch (error) {
+        smsStatus.textContent = error.message || '发送失败';
+      } finally {
+        smsSend.disabled = false;
+      }
+    });
+    smsLoginSubmit.addEventListener('click', async () => {
+      const code = smsLoginCode.value.trim();
+      if (!/^\d{4,8}$/.test(code)) { smsStatus.textContent = '请输入 4 到 8 位验证码'; return; }
+      smsLoginSubmit.disabled = true;
+      try {
+        const response = await fetch('${webState.prefix}/api/sms/submit/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.message || '登录失败');
+        if (data.cookies) document.querySelector('#cookieText').value = JSON.stringify(data.cookies, null, 2);
+        smsStatus.textContent = data.message || '登录成功';
+      } catch (error) {
+        smsStatus.textContent = error.message || '登录失败';
+      } finally {
+        smsLoginSubmit.disabled = false;
+      }
+    });
+
     form.addEventListener('submit', async event => {
       event.preventDefault();
       clearInterval(scanTimer);
