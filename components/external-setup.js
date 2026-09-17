@@ -60,7 +60,9 @@ export async function externalSetupFlow({ e, accountId, actionText }) {
       signal: AbortSignal.timeout(START_TIMEOUT_MS),
     })
     if (!response.ok) throw new Error(`外置服务 start 返回 HTTP ${response.status}：${(await response.text()).slice(0, 200)}`)
-    pageUrl = (await response.json()).page_url
+    await response.json()
+    // 链接用插件配置的地址拼接（不信服务端 base_url，反代子路径下会丢前缀）
+    pageUrl = `${base}/dyspark/i/${auth}`
   } catch (error) {
     logger.warn('[抖音续火] 外置 start 失败', error)
     await e.reply(`外置配置服务不可用：${error.message}`)
