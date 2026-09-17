@@ -22,6 +22,7 @@ import {
   createSetupLink,
   revokeSetupLinks,
 } from '../components/web-setup.js'
+import { externalBaseUrl, externalSetupFlow } from '../components/external-setup.js'
 
 export const accountHandlers = {
   startAddAccount,
@@ -39,9 +40,10 @@ export const accountHandlers = {
 }
 
 async function startAddAccount(e) {
+  if (externalBaseUrl()) return externalSetupFlow({ e, actionText: '添加账号' })
   try {
     await clearSetupSession(e.user_id)
-    const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id })
+    const { token, url, expiresMinutes } = await createSetupLink({ userId: e.user_id })
     const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接添加账号：\n${url}`)
     bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
@@ -150,7 +152,8 @@ async function editAccount(e) {
     return true
   }
   try {
-    const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id, accountId: account.id })
+    if (externalBaseUrl()) return externalSetupFlow({ e, accountId: account.id, actionText: `修改账号“${name}”` })
+    const { token, url, expiresMinutes } = await createSetupLink({ userId: e.user_id, accountId: account.id })
     const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接修改账号“${name}”：\n${url}\n可更新 Cookie、消息模板，也可点「拉取会话列表」增删续火目标。`)
     bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {

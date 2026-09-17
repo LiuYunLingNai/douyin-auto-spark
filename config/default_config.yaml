@@ -43,6 +43,8 @@ web:
   # 机器人发出的链接以此地址开头，填你点链接的设备能访问到的完整地址，端口需与实际服务端口一致
   # 例如局域网手机访问填 http://192.168.1.10:2536；留空时挂载模式取云崽 Bot.url，独立模式取 http://127.0.0.1:独立端口
   baseUrl: ""
+  # 外置配置服务地址：填了（如 https://dyspark-login.example.com）则添加/修改账号走外置服务，WS 回调拿结果；留空用内嵌网页
+  externalSetupUrl: ""
   linkExpiresMinutes: 10
   # 添加或修改网页保存成功后撤回发送给用户的网页链接消息
   recallSetupMessageOnComplete: false

@@ -15,7 +15,7 @@ let webState
 let standaloneServer
 let standaloneError
 
-export function createSetupLink({ userId, accountId }) {
+export async function createSetupLink({ userId, accountId }) {
   registerSetupRoutes()
   purgeExpiredSessions()
   const token = randomBytes(32).toString('hex')
@@ -38,7 +38,7 @@ export function createSetupLink({ userId, accountId }) {
   return {
     token,
     expiresMinutes: minutes,
-    url: new URL(`${webState.prefix}/setup/${token}`, getBaseUrl(config)).toString(),
+    url: joinUrl(await getBaseUrl(config), `${webState.prefix}/setup/${token}`),
   }
 }
 
@@ -98,15 +98,65 @@ export function registerSetupRoutes() {
   routesRegistered = true
 }
 
-function getBaseUrl(config) {
+const PUBLIC_IP_SOURCES = [
+  'https://api.ipify.org/?format=json',
+  'https://httpbin.org/ip',
+  'https://icanhazip.com',
+]
+let publicIpCache = ''
+
+/** 探测本机公网 IP（多源容错，参考 NTEUID 的做法），结果进程内缓存 */
+async function getPublicIp() {
+  if (publicIpCache) return publicIpCache
+  for (const url of PUBLIC_IP_SOURCES) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      let text = (await response.text()).trim()
+      if (url.includes('ipify')) text = JSON.parse(text).ip
+      else if (url.includes('httpbin')) text = JSON.parse(text).origin
+      const ip = text.split(',')[0].trim()
+      if (/^[\d.]+$/.test(ip)) {
+        publicIpCache = ip
+        return ip
+      }
+    } catch { /* 尝试下一个源 */ }
+  }
+  throw new Error('无法探测公网 IP，请在锅巴面板填写「网页服务对外地址」(web.baseUrl)')
+}
+
+function isLanHost(host) {
+  return ['0.0.0.0', '::', 'localhost', '127.0.0.1'].includes(host)
+    || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')
+}
+
+/** 拼接 base 与 path（保留 base 的子路径，修复穿透域名带子路径时被吞的问题） */
+function joinUrl(base, path) {
+  return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
+}
+
+async function getBaseUrl(config) {
   if (standaloneError) throw new Error(`独立网页服务启动失败：${standaloneError.message}`)
-  const fallback = webState.mode === 'mounted'
-    ? globalThis.Bot?.url
-    : `http://127.0.0.1:${webState.port}`
-  const value = String(config.web?.baseUrl || fallback || '').trim()
-  if (!value) throw new Error('请先在插件配置中填写 web.baseUrl')
+  // 三级回落（对齐 Core 版/NTEUID 设计）：web.baseUrl > Bot.url / 独立端口 > 局域网时自动探测公网 IP
+  let value = String(config.web?.baseUrl || '').trim()
+  if (!value) {
+    value = webState.mode === 'mounted'
+      ? String(globalThis.Bot?.url || '').trim()
+      : `http://127.0.0.1:${webState.port}`
+    if (value) {
+      try {
+        const parsed = new URL(value.endsWith('/') ? value : `${value}/`)
+        if (isLanHost(parsed.hostname)) parsed.hostname = await getPublicIp()
+        return joinUrl(parsed.toString(), '')
+      } catch (error) {
+        if (error.message.includes('无法探测公网 IP')) throw error
+        throw new Error(`网页服务地址无效：${value}`)
+      }
+    }
+    throw new Error('请先在插件配置中填写 web.baseUrl（网页服务对外地址）')
+  }
+  if (!/^https?:\/\//.test(value)) value = `https://${value}`
   try {
-    return new URL(value.endsWith('/') ? value : `${value}/`)
+    return new URL(value.endsWith('/') ? value : `${value}/`).toString()
   } catch {
     throw new Error('web.baseUrl 不是有效的网址')
   }

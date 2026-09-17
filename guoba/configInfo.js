@@ -100,6 +100,13 @@ const schemas = [
     placeholder: 'http://192.168.1.10:2536',
   },
   {
+    field: 'web.externalSetupUrl',
+    label: '外置配置服务地址',
+    bottomHelpMessage: '留空 = 用内嵌配置页；填写后添加/修改账号走外置服务（如 https://dyspark-login.example.com），WS 回调拿结果。服务端见 wei-la-ya/douyin-spark-login。',
+    component: 'Input',
+    placeholder: 'https://dyspark-login.example.com',
+  },
+  {
     field: 'web.linkExpiresMinutes',
     label: '链接有效分钟数',
     bottomHelpMessage: '添加或修改账号时生成的网页链接有效时长，过期后需要重新向机器人发送命令。',

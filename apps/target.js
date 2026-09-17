@@ -16,6 +16,7 @@ import {
   bindSetupMessage,
   createSetupLink,
 } from '../components/web-setup.js'
+import { externalBaseUrl, externalSetupFlow } from '../components/external-setup.js'
 
 export const targetHandlers = {
   targetList,
@@ -30,7 +31,8 @@ async function addTargetViaWeb(e) {
   const account = await findAccount(e, name)
   if (!account) return true
   try {
-    const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id, accountId: account.id })
+    if (externalBaseUrl()) return externalSetupFlow({ e, accountId: account.id, actionText: `为账号“${account.name}”增删续火目标` })
+    const { token, url, expiresMinutes } = await createSetupLink({ userId: e.user_id, accountId: account.id })
     const sent = await e.reply([
       `请在 ${expiresMinutes} 分钟内打开链接为账号“${account.name}”增删续火目标：`,
       url,

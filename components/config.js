@@ -32,6 +32,7 @@ const defaults = {
     standalonePort: 3066,
     baseUrl: '',
     linkExpiresMinutes: 10,
+    externalSetupUrl: '',
     recallSetupMessageOnComplete: false,
     setupMessageRecallSeconds: 0,
   },

@@ -64,6 +64,14 @@ imapi v1/message/send (protobuf, sessionid 鉴权) --> 送达
 - 签名实现：内置纯算法 a_bogus（源自 ShilongLee/Crawler 的 `lib/js/douyin.js`，MediaCrawler 同源），文件位于 `components/abogus-src.js`
 - 消息体：protobuf 模板 patch（协议参考 Rockedw/douyin-web-api-sdk），模板位于 `components/im-templates.js`
 
+## 外置配置服务（可选）
+
+Core 不在公网时，可把配置网页部署到独立服务器 [douyin-spark-login](https://github.com/wei-la-ya/douyin-spark-login)（clone 后 `pip install -r requirements.txt && uvicorn main:app` 即可运行），插件通过 HTTP start + WebSocket listen 回调拿结果（无密钥签名）。锅巴面板「外置配置服务地址」填服务地址后，`#抖音添加账号` / `#抖音添加好友` / `#抖音修改账号` 自动走外置流程。
+
+## 网页配置链接地址
+
+三级回落：锅巴「网页服务对外地址」(web.baseUrl) > Bot.url / 独立端口 > HOST 为局域网时自动探测公网 IP（内网穿透域名直接填 web.baseUrl 即可）。
+
 ## 风险与限制（重要）
 
 - 本插件使用的接口为**逆向所得的非公开接口**，仅供学习交流。抖音升级风控后可能失败：
