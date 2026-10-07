@@ -1,13 +1,13 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { chromium } from 'playwright'
 import nodemailer from 'nodemailer'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn.js'
 import utc from 'dayjs/plugin/utc.js'
 import timezone from 'dayjs/plugin/timezone.js'
-import { getBrowserLaunchOptions, getConfig, getPluginRoot } from './config.js'
-import { getUserEmails, getUserNotificationSettings, listAccounts } from './database.js'
+import { getConfig, getPluginRoot } from './config.js'
+import { getUserEmails, getUserNotificationSettings, listAccounts, setAccountUid } from './database.js'
+import { getBot, buildChatIndex, closeBot } from './douyin.js'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -15,7 +15,6 @@ dayjs.locale('zh-cn')
 
 const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z]+)\s*\}\}/g
 const PLACEHOLDERS = new Set(['account', 'friend', 'yiyan', 'from', 'date', 'time', 'weekday'])
-const screenshotDir = path.join(getPluginRoot(), 'artifacts')
 
 export async function runSpark({ userId, accountName } = {}) {
   const config = getConfig()
@@ -32,34 +31,30 @@ export async function runSpark({ userId, accountName } = {}) {
   }
 
   const yiyans = await loadYiyans()
-  const browser = await chromium.launch(getBrowserLaunchOptions(config))
   const failures = []
   const successes = []
-  const screenshots = []
   let sent = 0
 
-  try {
-    for (const account of accounts) {
-      try {
-        const accountSent = await runAccount(browser, account, config, yiyans, screenshots)
-        sent += accountSent
-        successes.push({ userId: account.userId, accountName: account.name, sent: accountSent })
-      } catch (error) {
-        failures.push({
-          userId: account.userId,
-          accountName: account.name,
-          message: toError(error).message,
-        })
-      }
+  for (const account of accounts) {
+    try {
+      const accountSent = await runAccount(account, config, yiyans)
+      sent += accountSent
+      successes.push({ userId: account.userId, accountName: account.name, sent: accountSent })
+    } catch (error) {
+      failures.push({
+        userId: account.userId,
+        accountName: account.name,
+        message: toError(error).message,
+      })
+    } finally {
+      closeBot(account.id === undefined ? account.name : account.id)
     }
-  } finally {
-    await browser.close()
   }
 
   await sendSuccessEmails(config.smtp, successes)
 
   if (failures.length > 0) {
-    await sendFailureEmails(config.smtp, failures, screenshots)
+    await sendFailureEmails(config.smtp, failures)
     const error = new Error(failures.map(formatFailure).join('\n'))
     error.result = { sent, successes, failures }
     throw error
@@ -112,92 +107,57 @@ async function sendSuccessEmails(smtp, successes) {
   }
 }
 
-async function runAccount(browser, account, config, yiyans, screenshots) {
-  const context = await browser.newContext()
-  let page
+async function runAccount(account, config, yiyans) {
+  // uid 一旦解析出来就落库，后续续火不必再打一次资料接口
+  const bot = await getBot(account, {
+    persistUid: (uid) => (account.id === undefined ? Promise.resolve() : setAccountUid(account.userId, account.name, uid)),
+  })
+  const { index, ambiguous } = await buildChatIndex(bot)
+
+  const needsYiyan = !account.messageTemplate || /\{\{\s*(yiyan|from)\s*\}\}/.test(account.messageTemplate)
+  const missing = []
+  const ambiguousHits = []
   let sent = 0
-  try {
-    await context.addCookies(account.cookies)
-    page = await context.newPage()
-    await page.goto('https://www.douyin.com/chat', { waitUntil: 'domcontentloaded' })
 
-    const searchInput = page.locator('input.semi-input[placeholder="搜索"]').first()
-    const ready = await searchInput.waitFor({ state: 'visible', timeout: 30000 })
-      .then(() => true).catch(() => false)
-    if (!ready) throw new Error('聊天页搜索框未出现，Cookie 可能已经失效')
+  for (const targetName of account.targetNames) {
+    const chatId = index.get(targetName)
+    if (!chatId) {
+      missing.push(targetName)
+      continue
+    }
+    // 同名会话（好友与群重名、或多个同名好友）无法区分，提示用户改用更精确的名字
+    if (ambiguous.has(targetName)) ambiguousHits.push(targetName)
 
-    await page.locator('[class*="conversation"], [class*="Conversation"]').first()
-      .waitFor({ state: 'visible', timeout: 30000 }).catch(() => {})
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
-
-    const needsYiyan = !account.messageTemplate || /\{\{\s*(yiyan|from)\s*\}\}/.test(account.messageTemplate)
-    const missing = []
-    for (const targetName of account.targetNames) {
-      logger.info(`[${account.name}] 开始搜索会话：${targetName}`)
-      const result = await searchConversation(page, searchInput, targetName)
-      if (!result) {
-        missing.push(targetName)
-        await captureFailureScreenshot(page, `${account.name}-${targetName}`, account.userId, screenshots)
-        continue
-      }
-
-      await result.getByText(/^(发消息|发私信)$/).click({ timeout: 5000 })
-      const editor = page.locator('.messageEditorimChatEditorContainer [data-slate-editor="true"][contenteditable="true"]').first()
-      await editor.waitFor({ state: 'visible', timeout: 10000 })
-      await editor.click()
-      logger.info(`[${account.name}] 已打开私信：${targetName}`)
-
-      const yiyan = needsYiyan ? pickRandom(yiyans) : undefined
-      const message = account.messageTemplate
-        ? renderTemplate(account.messageTemplate, account.name, targetName, yiyan)
-        : config.message.includeSource !== false
+    const yiyan = needsYiyan ? pickRandom(yiyans) : undefined
+    const message = account.messageTemplate
+      ? renderTemplate(account.messageTemplate, account.name, targetName, yiyan)
+      : yiyan
+        ? config.message.includeSource !== false
           ? `${yiyan.hitokoto}\n——「${yiyan.from}」`
           : yiyan.hitokoto
-      await page.keyboard.insertText(message)
-      await page.keyboard.press('Enter')
-      sent += 1
-      logger.info(`[${account.name}] 已发送消息：${targetName}`)
-      await page.waitForTimeout(1000)
+        : ''
+    if (!message) {
+      throw new Error(`账号“${account.name}”没有可发送的内容：消息模板为空且未取得一言`)
     }
-    if (missing.length > 0) {
-      throw new Error(`以下会话未找到：${missing.join('、')}，请检查备注名和 Cookie`)
+
+    const result = await bot.msg.send(chatId, { type: 'text', text: message })
+    if (result?.statusCode !== 0) {
+      throw new Error(`向“${targetName}”发送失败：${result?.statusMsg || result?.statusCode}${result?.checkCode ? `（审核码 ${result.checkCode}）` : ''}`)
     }
-    return sent
-  } catch (error) {
-    await captureFailureScreenshot(page, account.name, account.userId, screenshots)
-    throw error
-  } finally {
-    await context.close()
+    sent += 1
   }
+
+  if (ambiguousHits.length > 0) {
+    logger.warn(`[${account.name}] 以下会话名存在同名条目，已按首个匹配发送：${[...new Set(ambiguousHits)].join('、')}`)
+  }
+  if (missing.length > 0) {
+    throw new Error(`以下会话未找到：${missing.join('、')}，请检查会话名和 Cookie`)
+  }
+  return sent
 }
 
-async function searchConversation(page, searchInput, targetName) {
-  const result = page.locator('.SearchPanelitembox').filter({ has: page.getByText(targetName, { exact: true }) }).first()
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await searchInput.fill('')
-    await page.locator('.SearchPanelitembox').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {})
-    await page.waitForTimeout(500)
-    await searchInput.fill(targetName)
-    if (await result.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)) return result
-    if (attempt < 2) await page.waitForTimeout(2000)
-  }
-  return undefined
-}
 
-async function captureFailureScreenshot(page, name, userId, screenshots) {
-  if (!page || page.isClosed()) return
-  try {
-    await fs.mkdir(screenshotDir, { recursive: true })
-    const safe = name.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, '-').replace(/^-+|-+$/g, '') || 'account'
-    const file = path.join(screenshotDir, `failure-${safe}-${Date.now()}.png`)
-    await page.screenshot({ path: file, fullPage: true })
-    screenshots.push({ userId, file })
-  } catch (error) {
-    logger.warn('[抖音续火] 保存失败截图失败', error)
-  }
-}
-
-async function sendFailureEmails(smtp, failures, screenshots) {
+async function sendFailureEmails(smtp, failures) {
   if (!smtp?.enabled) return
   const emails = await getUserEmails(failures.map((failure) => failure.userId))
   const failuresByUser = new Map()
@@ -222,15 +182,11 @@ async function sendFailureEmails(smtp, failures, screenshots) {
     for (const [userId, userFailures] of deliveries) {
       const recipient = emails.get(userId)
       try {
-        const attachments = screenshots
-          .filter((screenshot) => screenshot.userId === userId)
-          .map((screenshot) => ({ filename: path.basename(screenshot.file), path: screenshot.file }))
         await transporter.sendMail({
           from: smtp.from || smtp.username,
           to: recipient,
           subject: '抖音续火任务失败',
           text: `抖音续火任务执行失败：\n\n${userFailures.map(formatFailure).join('\n')}`,
-          attachments,
         })
         logger.mark(`[抖音续火] 已向用户 ${userId} 发送失败邮件`)
       } catch (error) {
@@ -251,10 +207,12 @@ function resolveAccounts(values, defaultTemplate) {
       throw new Error(`账号“${name || index + 1}”的数据不完整，请删除后重新添加`)
     }
     return {
+      id: value.id,
       userId: value.userId,
       name,
       targetNames,
-      cookies: value.cookies.map(toPlaywrightCookie),
+      cookies: value.cookies,
+      douyinUid: String(value.douyinUid || ''),
       messageTemplate: normalizeTemplate(value.messageTemplate || defaultTemplate || ''),
     }
   })
@@ -285,7 +243,4 @@ async function loadYiyans() {
 }
 
 function pickRandom(values) { return values[Math.floor(Math.random() * values.length)] }
-function toPlaywrightCookie(cookie) {
-  return { name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path || '/', expires: cookie.session ? -1 : (cookie.expirationDate ?? -1), httpOnly: Boolean(cookie.httpOnly), secure: Boolean(cookie.secure), sameSite: cookie.sameSite === 'no_restriction' ? 'None' : 'Lax' }
-}
 function toError(error) { return error instanceof Error ? error : new Error(String(error)) }

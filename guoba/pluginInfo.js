@@ -6,5 +6,5 @@ export default {
   link: 'https://github.com/LiuYunLingNai/douyin-auto-spark/tree/yunzai-plugin',
   version: '1.0.0',
   icon: 'mdi:fire',
-  depends: ['playwright'],
+  depends: ['douyin.ts'],
 }

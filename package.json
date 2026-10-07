@@ -6,8 +6,9 @@
   "dependencies": {
     "chalk": "^5.6.2",
     "dayjs": "1.11.21",
+    "douyin.ts": "^0.6.2",
+    "node-schedule": "^2.1.1",
     "nodemailer": "^7.0.6",
-    "playwright": "1.61.0",
     "sql.js": "^1.13.0",
     "yaml": "^2.8.1"
   },

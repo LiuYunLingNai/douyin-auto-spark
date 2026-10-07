@@ -53,6 +53,12 @@ async function getDatabase() {
       if (!userColumns.some((column) => column.name === 'success_email_enabled')) {
         database.run('ALTER TABLE users ADD COLUMN success_email_enabled INTEGER NOT NULL DEFAULT 0')
       }
+      // 抖音数字 uid。douyin.ts 的 start() 会先用 device_id=0 请求 imdesktop 自举 uid，
+      // 该请求必然返回「用户未登录」，因此在 Bot 构造时显式传入 uid 才能连上。
+      const accountColumns = rows(database, 'PRAGMA table_info(accounts)')
+      if (!accountColumns.some((column) => column.name === 'douyin_uid')) {
+        database.run("ALTER TABLE accounts ADD COLUMN douyin_uid TEXT NOT NULL DEFAULT ''")
+      }
       await persist(database)
       return database
     })()
@@ -100,6 +106,7 @@ function toAccount(row) {
     cookies: parseJson(row.cookies, 'Cookie 数据'),
     targetNames: parseJson(row.target_names, '目标会话数据'),
     messageTemplate: String(row.message_template || ''),
+    douyinUid: String(row.douyin_uid || ''),
   }
 }
 
@@ -111,15 +118,15 @@ export async function listAccounts(userId) {
   })
 }
 
-export async function addAccount({ userId, name, cookies, targetNames, messageTemplate }) {
+export async function addAccount({ userId, name, cookies, targetNames, messageTemplate, douyinUid = '' }) {
   return run((database) => {
     const now = new Date().toISOString()
     const normalizedUserId = String(userId)
     database.run('INSERT OR IGNORE INTO users (user_id, created_at) VALUES (?, ?)', [normalizedUserId, now])
     try {
       database.run(
-        'INSERT INTO accounts (user_id, name, cookies, target_names, message_template, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [normalizedUserId, name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, now],
+        'INSERT INTO accounts (user_id, name, cookies, target_names, message_template, douyin_uid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [normalizedUserId, name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, String(douyinUid || ''), now],
       )
     } catch (error) {
       if (String(error).includes('UNIQUE constraint failed')) {
@@ -130,6 +137,17 @@ export async function addAccount({ userId, name, cookies, targetNames, messageTe
   }, true)
 }
 
+/** 记录账号的抖音数字 uid（扫码登录成功后写入） */
+export async function setAccountUid(userId, name, douyinUid) {
+  return run((database) => {
+    database.run('UPDATE accounts SET douyin_uid = ? WHERE user_id = ? AND name = ?', [
+      String(douyinUid || ''),
+      String(userId),
+      name,
+    ])
+  }, true)
+}
+
 export async function deleteAccount(userId, name) {
   return run((database) => {
     database.run('DELETE FROM accounts WHERE user_id = ? AND name = ?', [String(userId), name])
@@ -137,13 +155,21 @@ export async function deleteAccount(userId, name) {
   }, true)
 }
 
-export async function updateAccount({ id, userId, name, cookies, targetNames, messageTemplate }) {
+export async function updateAccount({ id, userId, name, cookies, targetNames, messageTemplate, douyinUid }) {
   return run((database) => {
     try {
-      database.run(
-        'UPDATE accounts SET name = ?, cookies = ?, target_names = ?, message_template = ? WHERE id = ? AND user_id = ?',
-        [name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, Number(id), String(userId)],
-      )
+      // douyinUid 允许不传：老调用方（如定时任务改目标）不改 Cookie 时不必重解析身份
+      if (douyinUid === undefined) {
+        database.run(
+          'UPDATE accounts SET name = ?, cookies = ?, target_names = ?, message_template = ? WHERE id = ? AND user_id = ?',
+          [name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, Number(id), String(userId)],
+        )
+      } else {
+        database.run(
+          'UPDATE accounts SET name = ?, cookies = ?, target_names = ?, message_template = ?, douyin_uid = ? WHERE id = ? AND user_id = ?',
+          [name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, String(douyinUid), Number(id), String(userId)],
+        )
+      }
     } catch (error) {
       if (String(error).includes('UNIQUE constraint failed')) {
         throw new Error(`已存在名为“${name}”的账号，请换一个名称`)

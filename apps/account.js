@@ -22,6 +22,7 @@ import {
   createSetupLink,
   revokeSetupLinks,
 } from '../components/web-setup.js'
+import { closeBot } from '../components/douyin.js'
 
 export const accountHandlers = {
   startAddAccount,
@@ -133,7 +134,9 @@ async function accountList(e) {
 
 async function removeAccount(e) {
   const name = String(e.msg).replace(/^#抖音删除账号\s+/, '').trim()
+  const account = (await listAccounts(e.user_id)).find((item) => item.name === name)
   const removed = await deleteAccount(e.user_id, name)
+  if (removed && account) closeBot(account.id)
   await e.reply(removed ? `账号“${name}”已删除。` : `未找到名为“${name}”的账号。`)
   return true
 }

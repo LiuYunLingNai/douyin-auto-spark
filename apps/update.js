@@ -1,5 +1,6 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import { update as Update } from '../../other/update.js'
+import { closeAllBots } from '../components/douyin.js'
 
 const PLUGIN_NAME = 'douyin-auto-spark'
 
@@ -35,6 +36,12 @@ export class DouyinAutoSparkUpdate extends plugin {
     e.msg = `#${e.msg?.includes('强制') ? '强制' : ''}更新${PLUGIN_NAME}`
     const updater = new Update(e)
     updater.e = e
+    // 更新会替换磁盘上的插件文件，先释放正在运行的抖音长连接，避免更新后连接悬空
+    try {
+      closeAllBots()
+    } catch (error) {
+      logger?.warn?.(`[抖音续火] 更新前关闭抖音连接失败：${error?.message || error}`)
+    }
     return updater.update()
   }
 

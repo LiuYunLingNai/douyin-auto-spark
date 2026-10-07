@@ -1,11 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { chromium } from 'playwright'
-import { getBrowserLaunchOptions, getConfig, getPluginRoot } from './config.js'
+import { login } from 'douyin.ts'
+import { getConfig } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
+import { toCookieArray, createSdkLog, getBot, hydrateFriendNames, closeBot, toCookieHeader } from './douyin.js'
 
 const mountedRoutePrefix = '/douyin-auto-spark'
 const standaloneRoutePrefix = '/douyin-auto-spark'
@@ -128,10 +127,9 @@ function registerMountedRoutes() {
   app.get(`${webState.prefix}/setup/:token`, (req, res) => handleSetupPage(req.params.token, res))
   app.post(`${webState.prefix}/api/setup/:token`, (req, res) => handleSetupSubmit(req.params.token, req.body, res))
   app.post(`${webState.prefix}/api/scan/start/:token`, (req, res) => handleScanStart(req.params.token, res))
-  app.post(`${webState.prefix}/api/scan/refresh/:token`, (req, res) => handleScanRefresh(req.params.token, res))
-  app.post(`${webState.prefix}/api/scan/sms/:token`, (req, res) => handleScanSms(req.params.token, req.body, res))
-  app.get(`${webState.prefix}/api/scan/screenshot/:token`, (req, res) => handleScanScreenshot(req.params.token, res))
+  app.post(`${webState.prefix}/api/scan/mfa/:token`, (req, res) => handleScanMfa(req.params.token, req.body, res))
   app.get(`${webState.prefix}/api/scan/status/:token`, (req, res) => handleScanStatus(req.params.token, res))
+  app.post(`${webState.prefix}/api/sessions/:token`, (req, res) => handleSessionList(req.params.token, req.body, res))
 }
 
 function startStandaloneServer() {
@@ -155,16 +153,14 @@ async function handleStandaloneRequest(req, res) {
   const page = new RegExp(`^${webState.prefix}/setup/([a-f0-9]{64})$`).exec(url.pathname)
   const api = new RegExp(`^${webState.prefix}/api/setup/([a-f0-9]{64})$`).exec(url.pathname)
   const scanStart = new RegExp(`^${webState.prefix}/api/scan/start/([a-f0-9]{64})$`).exec(url.pathname)
-  const scanRefresh = new RegExp(`^${webState.prefix}/api/scan/refresh/([a-f0-9]{64})$`).exec(url.pathname)
-  const scanSms = new RegExp(`^${webState.prefix}/api/scan/sms/([a-f0-9]{64})$`).exec(url.pathname)
-  const scanScreenshot = new RegExp(`^${webState.prefix}/api/scan/screenshot/([a-f0-9]{64})$`).exec(url.pathname)
+  const scanMfa = new RegExp(`^${webState.prefix}/api/scan/mfa/([a-f0-9]{64})$`).exec(url.pathname)
   const scanStatus = new RegExp(`^${webState.prefix}/api/scan/status/([a-f0-9]{64})$`).exec(url.pathname)
+  const sessionList = new RegExp(`^${webState.prefix}/api/sessions/([a-f0-9]{64})$`).exec(url.pathname)
+  if (req.method === 'POST' && sessionList) return handleSessionList(sessionList[1], await readJsonBody(req), res)
   if (req.method === 'GET' && page) return handleSetupPage(page[1], res)
   if (req.method === 'POST' && api) return handleSetupSubmit(api[1], await readJsonBody(req), res)
   if (req.method === 'POST' && scanStart) return handleScanStart(scanStart[1], res)
-  if (req.method === 'POST' && scanRefresh) return handleScanRefresh(scanRefresh[1], res)
-  if (req.method === 'POST' && scanSms) return handleScanSms(scanSms[1], await readJsonBody(req), res)
-  if (req.method === 'GET' && scanScreenshot) return handleScanScreenshot(scanScreenshot[1], res)
+  if (req.method === 'POST' && scanMfa) return handleScanMfa(scanMfa[1], await readJsonBody(req), res)
   if (req.method === 'GET' && scanStatus) return handleScanStatus(scanStatus[1], res)
   sendHtml(res, 404, renderMessagePage('页面不存在。'))
 }
@@ -191,7 +187,7 @@ async function handleSetupSubmit(token, body, res) {
     if (getConfig().web?.recallSetupMessageOnComplete === true) await recallSetupMessage(token)
     sessions.delete(token)
     clearTimeout(session.expiryTimer)
-    await closeScanSession(token)
+    closeScanSession(token)
     sendJson(res, 200, { ok: true, message })
   } catch (error) {
     session.submitting = false
@@ -199,11 +195,100 @@ async function handleSetupSubmit(token, body, res) {
   }
 }
 
+/**
+ * 拉取该 Cookie 对应的可续火会话列表，供网页勾选。
+ *
+ * 客户端只提交 Cookie（扫码所得或粘贴），服务端据此建连并返回会话名。
+ * 会过滤掉「自己和自己」的会话——它在好友列表里以本账号昵称出现，
+ * 但发给它必然被服务端以 invalid receiverId 拒绝。
+ */
+async function handleSessionList(token, body, res) {
+  const session = getSession(token)
+  if (!session) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
+  let cookies
+  try {
+    cookies = await resolveSubmittedCookies(session, body)
+  } catch (error) {
+    return sendJson(res, 400, { ok: false, message: error.message })
+  }
+  if (!cookies.length) return sendJson(res, 400, { ok: false, message: '请先扫码获取 Cookie 或粘贴 Cookie JSON。' })
+
+  const stored = session.accountId === undefined ? undefined : (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
+  const scan = scanSessions.get(token)
+  const header = toCookieHeader(cookies)
+  const douyinUid = scan?.status === 'success' && header === toCookieHeader(scan.cookies)
+    ? scan.userId
+    : stored && header === toCookieHeader(stored.cookies) ? stored.douyinUid : ''
+  const placeholder = {
+    id: `setup:${token}`,
+    userId: session.userId,
+    name: String(body?.name || '').trim() || '当前账号',
+    cookies,
+    douyinUid,
+  }
+  let bot
+  try {
+    bot = await getBot(placeholder)
+  } catch (error) {
+    return sendJson(res, 400, { ok: false, message: error.message })
+  }
+
+  try {
+    const self = String(bot.id || '')
+    const [rawFriends, groups] = await Promise.all([
+      bot.frd.list(),
+      bot.grp.list(),
+    ])
+    // 好友昵称要二次补全：会话列表接口返回的 nickname 恒为空，补全后才能拿到会话名
+    const friends = await hydrateFriendNames(bot, rawFriends)
+    const items = []
+    const seen = new Set()
+    const push = (name, chatId, type, lastMessage, uid) => {
+      const key = String(name || '').trim()
+      if (!key || !chatId || seen.has(key)) return
+      // 自己与自己的会话：好友会话两端 uid 都是自己，发给它必被 invalid receiverId 拒绝
+      if (type === 'friend' && String(uid) === self) return
+      seen.add(key)
+      items.push({ name: key, chatId, type, hasHistory: Boolean(lastMessage) })
+    }
+    for (const friend of friends) push(friend.nickname, friend.chatId, 'friend', friend.lastMessage, friend.uid)
+    for (const group of groups) push(group.name, group.chatId, 'group', group.lastMessageTime)
+    items.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, 'zh') : a.type === 'group' ? -1 : 1))
+    return sendJson(res, 200, { ok: true, items })
+  } catch (error) {
+    logger.error('[抖音续火] 拉取会话列表失败', error)
+    return sendJson(res, 400, { ok: false, message: `拉取会话列表失败：${error?.message || error}` })
+  } finally {
+    closeBot(placeholder.id)
+  }
+}
+
+/**
+ * 取本次请求应使用的 Cookie：优先请求体传来的，其次账号已存的。
+ * 修改账号时 Cookie 留空表示沿用原值。
+ */
+async function resolveSubmittedCookies(session, body) {
+  const raw = String(body?.cookies || '').trim()
+  if (raw) {
+    let parsed
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      throw new Error('Cookie 不是合法的 JSON，请重新扫码或粘贴 Cookie-Editor 导出的数组。')
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Cookie 为空，请重新扫码或粘贴。')
+    return parsed
+  }
+  if (session.accountId === undefined) return []
+  const account = (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
+  return account?.cookies || []
+}
+
 async function handleScanStart(token, res) {
   const session = getSession(token)
   if (!session) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
   try {
-    const result = await startScanSession(token)
+    const result = await startScanSession(token, { force: true })
     sendJson(res, 200, { ok: true, ...result })
   } catch (error) {
     logger.error('[抖音续火] 启动扫码登录失败', error)
@@ -211,305 +296,191 @@ async function handleScanStart(token, res) {
   }
 }
 
-async function handleScanRefresh(token, res) {
-  const session = getSession(token)
-  if (!session) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
-  try {
-    const result = await startScanSession(token, { force: true })
-    sendJson(res, 200, { ok: true, ...result })
-  } catch (error) {
-    logger.error('[抖音续火] 刷新扫码二维码失败', error)
-    sendJson(res, 400, { ok: false, message: error.message || '刷新二维码失败。' })
-  }
-}
-
-async function handleScanSms(token, body, res) {
-  if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
-  try {
-    const scan = scanSessions.get(token)
-    if (!scan) throw new Error('扫码会话不存在，请重新获取二维码。')
-    const code = String(body?.code || '').trim()
-    if (!/^\d{4,8}$/.test(code)) throw new Error('短信验证码应为 4 到 8 位数字。')
-    await submitScanSmsCode(scan, code)
-    sendJson(res, 200, { ok: true, message: '验证码已提交，请等待登录结果。' })
-  } catch (error) {
-    sendJson(res, 400, { ok: false, message: error.message || '提交短信验证码失败。' })
-  }
-}
-
-function handleScanScreenshot(token, res) {
+/** 网页回填二次验证凭据：短信验证码或账号密码 */
+async function handleScanMfa(token, body, res) {
   if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
   const scan = scanSessions.get(token)
-  if (!scan?.screenshot) return sendJson(res, 404, { ok: false, message: '截图尚未生成。' })
-  res.writeHead(200, {
-    'Content-Type': 'image/png',
-    'Cache-Control': 'no-store',
-    'Content-Length': scan.screenshot.length,
-  })
-  res.end(scan.screenshot)
+  if (!scan?.mfa) return sendJson(res, 400, { ok: false, message: '当前无需二次验证，请先获取二维码。' })
+  try {
+    const value = String(body?.value || '').trim()
+    if (!value) throw new Error('请输入验证码或密码')
+    if (scan.mfa.kind === 'sms' && !/^\d{4,8}$/.test(value)) throw new Error('短信验证码应为 4 到 8 位数字')
+    const pending = scan.mfa
+    scan.mfa = undefined
+    scan.status = 'verifying'
+    scan.message = '已提交，请等待登录结果。'
+    pending.resolve(value)
+    sendJson(res, 200, { ok: true, message: '已提交，请等待登录结果。' })
+  } catch (error) {
+    sendJson(res, 400, { ok: false, message: error.message || '提交二次验证失败。' })
+  }
 }
 
 async function handleScanStatus(token, res) {
   if (!getSession(token)) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
-  try {
-    const result = await getScanStatus(token)
-    sendJson(res, 200, { ok: true, ...result })
-  } catch (error) {
-    sendJson(res, 400, { ok: false, message: error.message || '读取扫码状态失败。' })
-  }
-}
-
-async function startScanSession(token, { force = false } = {}) {
-  const current = scanSessions.get(token)
-  if (!force && current?.status === 'waiting' && current.qr) return { status: current.status, qr: current.qr }
-
-  await closeScanSession(token)
-  const config = getConfig()
-  let browser
-  let context
-  let page
-  try {
-    browser = await chromium.launch(getBrowserLaunchOptions(config))
-    context = await browser.newContext()
-    page = await context.newPage()
-  } catch (error) {
-    await context?.close().catch(() => {})
-    await browser?.close().catch(() => {})
-    throw error
-  }
-  const scan = { token, browser, context, page, status: 'waiting', qr: '', cookies: undefined, error: undefined, cookieFingerprint: '', screenshotLogged: false, screenshot: undefined, smsRequested: false, smsCodeSubmitted: false, startedAt: Date.now() }
-  scanSessions.set(token, scan)
-  try {
-    await page.goto('https://www.douyin.com/chat', { waitUntil: 'domcontentloaded', timeout: 30000 })
-    scan.qr = await captureDouyinQr(page)
-    await saveScanScreenshot(scan)
-    return { status: scan.status, qr: scan.qr }
-  } catch (error) {
-    scan.status = 'error'
-    scan.error = error.message
-    await closeScanSession(token)
-    throw error
-  }
-}
-
-async function captureDouyinQr(page) {
-  // 聊天页未登录时会直接显示扫码登录弹窗，二维码通常以内联 data URL 提供。
-  const qr = page.locator('img[aria-label="二维码"], img[alt="二维码"], img[src^="data:image"]')
-  let count = 0
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    count = await qr.count()
-    if (count > 0) break
-    await page.waitForTimeout(500)
-  }
-  if (count === 0) {
-    const bodyText = await page.locator('body').innerText({ timeoutMs: 5000 }).catch(() => '')
-    if (/验证码|安全验证|访问验证/.test(bodyText)) {
-      throw new Error('抖音当前要求完成安全验证，暂时无法获取登录二维码。请稍后重试或使用 Cookie 文本文件。')
-    }
-    throw new Error('未找到抖音登录二维码，请确认浏览器可以正常访问 www.douyin.com/chat。')
-  }
-
-  const info = await qr.first().evaluate((element) => {
-    const rect = element.getBoundingClientRect()
-    return {
-      src: element.currentSrc || element.getAttribute('src') || '',
-      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-    }
-  })
-  if (info.src.startsWith('data:image/')) return info.src
-
-  const margin = 16
-  const clip = {
-    x: Math.max(0, info.rect.x - margin),
-    y: Math.max(0, info.rect.y - margin),
-    width: info.rect.width + margin * 2,
-    height: info.rect.height + margin * 2,
-  }
-  const image = await page.screenshot({ type: 'png', clip })
-  return `data:image/png;base64,${image.toString('base64')}`
-}
-
-async function getScanStatus(token) {
   const scan = scanSessions.get(token)
-  if (!scan) return { status: 'idle' }
-  if (scan.status === 'waiting') {
-    try {
-      // 扫码回调可能把 Cookie 写入 passport.douyin.com 等子域，因此读取整个上下文。
-      const cookies = await scan.context.cookies()
-      await maybeRequestSmsVerification(scan)
-      const fingerprint = cookies
-        .map((cookie) => `${cookie.domain}:${cookie.name}:${String(cookie.value || '').length}`)
-        .sort()
-        .join('|')
-      if (fingerprint !== scan.cookieFingerprint) {
-        scan.cookieFingerprint = fingerprint
-        if (cookies.some((cookie) => typeof cookie.domain === 'string' && /(^|\.)douyin\.com$/i.test(cookie.domain))) {
-          logger.info(`[抖音续火] 扫码会话 Cookie 已更新：${cookies.length} 条`)
-          await saveScanScreenshot(scan)
-        }
-      }
-      if (Date.now() - (scan.lastScreenshotAt || 0) >= 5000) await saveScanScreenshot(scan)
-      // 未登录页面也可能存在 csrf 或空 Cookie，只把真实的非空会话 Cookie 视为登录成功。
-      const hasSessionCookie = hasDouyinSessionCookie(cookies)
-      if (hasSessionCookie) {
-        // 登录回调可能分多次写入 Cookie，稍等后再读取一次，避免保存半套 Cookie。
-        await scan.page?.waitForTimeout(1000).catch(() => {})
-      }
-      const settledCookies = hasSessionCookie ? await scan.context.cookies() : cookies
-      if (hasDouyinSessionCookie(settledCookies) || await looksLoggedInPage(scan.page, settledCookies)) {
-        scan.cookies = await scan.context.cookies()
-        scan.status = 'success'
-        await saveScanScreenshot(scan)
-        await closeScanBrowser(scan)
-      }
-    } catch (error) {
-      scan.status = 'error'
-      scan.error = error.message || '读取登录状态失败。'
-    }
+  if (!scan) return sendJson(res, 200, { ok: true, status: 'idle' })
+  if (scan.status === 'success') {
+    return sendJson(res, 200, { ok: true, status: 'success', cookies: scan.cookies, douyinUid: scan.userId || '', nickname: scan.nickname || '' })
   }
   if (scan.status === 'error') {
     const message = scan.error || '扫码登录失败。'
-    await closeScanSession(token)
-    return { status: 'error', message }
+    closeScanSession(token)
+    return sendJson(res, 200, { ok: true, status: 'error', message })
   }
-  if (scan.status === 'success') return { status: 'success', cookies: scan.cookies }
-  if (scan.smsRequested && !scan.smsCodeSubmitted) return { status: 'sms', message: '已点击接收短信验证码，请输入短信验证码。' }
-  return { status: 'waiting' }
+  const payload = { ok: true, status: scan.status }
+  if (scan.qr) payload.qr = scan.qr
+  if (scan.message) payload.message = scan.message
+  if (scan.mfa) payload.mfa = { kind: scan.mfa.kind, maskedMobile: scan.mfa.maskedMobile }
+  if (scan.verifyUrl) payload.verifyUrl = scan.verifyUrl
+  sendJson(res, 200, payload)
 }
 
-async function maybeRequestSmsVerification(scan) {
-  if (scan.smsRequested || !scan.page || scan.page.isClosed()) return
-  try {
-    // 身份验证组件可能位于 iframe，逐个 frame 查找可见选项。
-    for (const frame of scan.page.frames()) {
-      const receive = frame.getByText(/^\s*接收短信验证码\s*$/).last()
-      if (!await receive.isVisible().catch(() => false)) continue
-      const row = receive.locator('xpath=..')
-      if (await row.isVisible().catch(() => false)) {
-        await row.click({ force: true, timeout: 5000 })
-      } else {
-        await receive.click({ force: true, timeout: 5000 })
-      }
-      scan.smsRequested = true
-      logger.info('[抖音续火] 已自动点击接收短信验证码，等待用户输入验证码')
-      await saveScanScreenshot(scan)
-      return
+/**
+ * 扫码登录：走 douyin.ts 的 login()，各阶段回调交给前端轮询展示。
+ *
+ * 与旧的浏览器方案不同，这里没有二维码截图与页面轮询——QR 由 login 直接给出
+ * base64（或扫码页 URL），滑块等安全验证改为把地址交给用户浏览器打开，
+ * 短信/密码二次验证则等前端把输入回传（scan.mfa 上的 Promise）。
+ */
+async function startScanSession(token, { force = false } = {}) {
+  const current = scanSessions.get(token)
+  if (!force && current && current.status !== 'error') return { status: current.status, qr: current.qr }
+
+  closeScanSession(token)
+  const scan = {
+    token,
+    status: 'waiting',
+    qr: undefined,
+    cookies: undefined,
+    error: undefined,
+    message: '正在获取二维码...',
+    mfa: undefined,
+    verifyUrl: undefined,
+    cancelled: false,
+  }
+  scanSessions.set(token, scan)
+
+  // login() 是长流程，后台跑；前端靠 /api/scan/status 轮询进度
+  scan.promise = login({
+    log: createSdkLog('扫码'),
+    onQr: (qr) => {
+      // douyin.ts 透传的是抖音接口原始 qrcode 字段，通常是裸 base64（无 data: 前缀），
+      // 直接赋给 img.src 会被当成相对路径而破图，这里统一补齐；若渠道下发的是
+      // 完整 data URL 或 http(s) 地址则原样使用。
+      scan.qr = normalizeQrSrc(qr.base64, qr.url)
+      scan.qrUrl = qr.url
+      scan.message = '请使用抖音 App 扫码登录。'
+      notifyQr(scan)
+    },
+    onStatus: (status) => {
+      scan.status = status === 'confirmed' ? 'verifying' : 'waiting'
+      scan.message = statusText(status)
+    },
+    onVerifyUrl: (url) => {
+      // 滑块等本地安全验证：把地址交给用户在浏览器打开，完成后 login 自动继续
+      scan.verifyUrl = url
+      scan.message = '需要完成安全验证，请打开下方链接。'
+    },
+    onMfa: (info) => new Promise((resolve, reject) => {
+      // 等前端把验证码或密码回传；链接过期/取消时 reject，避免 Promise 悬挂
+      scan.mfa = { kind: info?.kind, maskedMobile: info?.maskedMobile, resolve }
+      scan.status = 'mfa'
+      scan.message = info?.kind === 'password'
+        ? '该账号需要密码二次验证，请输入登录密码。'
+        : `抖音要求短信验证，请输入验证码（${info?.maskedMobile || '绑定手机'}）。`
+      scan.mfaReject = reject
+    }),
+  })
+    .then((session) => {
+      if (scan.cancelled) return
+      scan.cookies = toCookieArray(session.cookie)
+      scan.userId = session.userId
+      scan.nickname = session.userData?.screen_name
+      scan.status = 'success'
+      scan.message = '扫码登录成功，Cookie 已填入下方文本框，请继续提交。'
+    })
+    .catch((error) => {
+      if (scan.cancelled) return
+      scan.status = 'error'
+      scan.error = error?.message || '扫码登录失败。'
+      // 取码阶段就失败时唤醒等待者，避免请求一直挂到超时才报错
+      notifyQr(scan)
+    })
+
+  // login() 取码要打一次抖音接口（实测约 1.4s），onQr 之前 scan.qr 一直是 undefined。
+  // 若此刻直接返回，前端拿到的是「没有 qr」的响应：它只在 data.qr 存在时才启动轮询，
+  // 于是既不显示二维码也不报错——表现就是「按钮点了没反应」。这里短等一下把首图带上。
+  const qr = await waitForQr(scan)
+  return { status: scan.status, qr, message: scan.message }
+}
+
+/** 等首张二维码就绪：取到码、出错或超时都立即返回，不阻塞请求线程 */
+function waitForQr(scan, timeoutMs = 8000) {
+  if (scan.qr || scan.status === 'error') return Promise.resolve(scan.qr)
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      scan.qrWaiters?.delete(settle)
+      resolve(scan.qr)
+    }, timeoutMs)
+    timer.unref?.()
+    const settle = () => {
+      clearTimeout(timer)
+      scan.qrWaiters?.delete(settle)
+      resolve(scan.qr)
     }
-  } catch (error) {
-    logger.warn(`[抖音续火] 自动点击接收短信验证码失败：${error.message}`)
-  }
+    scan.qrWaiters ??= new Set()
+    scan.qrWaiters.add(settle)
+  })
 }
 
-async function submitScanSmsCode(scan, code) {
-  if (!scan.page || scan.page.isClosed()) throw new Error('扫码浏览器已关闭，请重新获取二维码。')
-  const frames = scan.page.frames()
-  let codeInput
-  let inputFrame
-  for (const frame of frames) {
-    const candidates = frame.locator('#button-input:visible')
-    const count = await candidates.count()
-    if (!count) continue
-    codeInput = candidates.nth(count - 1)
-    inputFrame = frame
-    break
-  }
-  if (!codeInput) {
-    throw new Error('未找到短信验证码输入框，请确认抖音页面已显示验证码输入框。')
-  }
-  await codeInput.scrollIntoViewIfNeeded().catch(() => {})
-  await codeInput.click({ force: true, timeout: 5000 })
-  await codeInput.fill(String(code))
-  let actualValue = await codeInput.evaluate((element) => element.value || '').catch(() => '')
-  if (actualValue !== String(code)) {
-    await codeInput.click({ force: true, timeout: 5000 })
-    await codeInput.fill('')
-    await codeInput.pressSequentially(String(code), { delay: 100 })
-    actualValue = await codeInput.evaluate((element) => element.value || '').catch(() => '')
-  }
-  if (actualValue !== String(code)) throw new Error('验证码未能填入抖音页面，请重新提交。')
-  await saveScanScreenshot(scan)
-  logger.info('[抖音续火] 已将短信验证码填入抖音页面')
-  await clickSmsSubmit(inputFrame)
-  scan.smsCodeSubmitted = true
-  await saveScanScreenshot(scan)
+/** onQr / 出错时唤醒所有等待首图的请求 */
+function notifyQr(scan) {
+  if (!scan.qrWaiters) return
+  for (const settle of [...scan.qrWaiters]) settle()
 }
 
-async function clickSmsSubmit(frame) {
-  if (!frame) throw new Error('未找到验证码提交按钮。')
-  const submit = frame.getByRole('button', { name: /验证|登录|确认|提交/ }).first()
-  if (await submit.isVisible().catch(() => false)) {
-    await submit.click({ force: true })
-    return
+/** 把 onQr 给的图源规范成 <img src> 可直接使用的值 */
+function normalizeQrSrc(base64, url) {
+  const raw = (base64 || '').trim()
+  if (raw.startsWith('data:')) return raw
+  if (/^https?:\/\//i.test(raw)) return raw
+  if (raw) return `data:image/png;base64,${raw}`
+  // 没有图片时退回扫码页地址，至少让用户有办法继续
+  return /^https?:\/\//i.test(url || '') ? url : ''
+}
+
+function statusText(status) {
+  const map = {
+    new: '请使用抖音 App 扫码登录。',
+    scanned: '已扫码，请在手机上确认登录。',
+    verifying: '正在验证，请稍候...',
+    verified: '验证通过，正在完成登录...',
+    confirmed: '登录已确认，正在获取 Cookie...',
+    expired: '二维码已过期，请点击“重新获取二维码”。',
   }
-  const text = frame.getByText(/^\s*验证\s*$/).last()
-  if (!await text.isVisible().catch(() => false)) throw new Error('未找到验证码提交按钮。')
-  await text.click({ force: true, timeout: 5000 })
+  return map[status] || String(status || '')
 }
 
-function hasDouyinSessionCookie(cookies) {
-  const sessionCookieNames = [
-    'sessionid', 'sessionid_ss', 'sid_guard', 'sid_tt',
-    'uid_tt', 'uid_tt_ss', 'passport_auth_status', 'passport_auth_status_ss',
-  ]
-  return cookies.some((cookie) =>
-    sessionCookieNames.includes(cookie.name)
-    && typeof cookie.value === 'string'
-    && cookie.value.trim().length >= 8,
-  )
-}
-
-async function saveScanScreenshot(scan) {
-  if (!scan.page || scan.page.isClosed()) return
-  try {
-    const directory = path.join(getPluginRoot(), 'artifacts', 'scan')
-    const file = path.join(directory, `scan-${scan.token}.png`)
-    await fs.mkdir(directory, { recursive: true })
-    const screenshot = await scan.page.screenshot({ path: file, fullPage: true })
-    scan.screenshot = screenshot
-    scan.screenshotVersion = (scan.screenshotVersion || 0) + 1
-    scan.lastScreenshotAt = Date.now()
-    if (!scan.screenshotLogged) {
-      scan.screenshotLogged = true
-      logger.info('[抖音续火] 扫码页面截图已更新')
-    }
-  } catch (error) {
-    logger.warn(`[抖音续火] 保存扫码页面截图失败：${error.message}`)
-  }
-}
-
-async function looksLoggedInPage(page, cookies) {
-  if (!page || page.isClosed()) return false
-  const hasDouyinCookie = cookies.some((cookie) =>
-    typeof cookie.domain === 'string'
-    && /(^|\.)douyin\.com$/i.test(cookie.domain)
-    && typeof cookie.value === 'string'
-    && cookie.value.trim(),
-  )
-  if (!hasDouyinCookie) return false
-  try {
-    const prompt = page.getByText('登录后免费畅享高清视频', { exact: false })
-    if (await prompt.isVisible().catch(() => false)) return false
-    return await page.locator('input[placeholder="搜索"]').first().isVisible().catch(() => false)
-  } catch {
-    return false
-  }
-}
-
-async function closeScanSession(token) {
+/**
+ * 结束扫码会话。login() 没有中断接口，其轮询最长可持续 120s，因此这里不能 await
+ * 它的 promise——否则请求处理会被挂住。只标记 cancelled 让它后续结果被忽略，
+ * 并让等待输入的二次验证 Promise 立刻失败，避免悬挂。
+ */
+function closeScanSession(token) {
   const scan = scanSessions.get(token)
   if (!scan) return
   scanSessions.delete(token)
-  await closeScanBrowser(scan)
-}
-
-async function closeScanBrowser(scan) {
-  const context = scan.context
-  const browser = scan.browser
-  scan.context = undefined
-  scan.browser = undefined
-  scan.page = undefined
-  await context?.close().catch(() => {})
-  await browser?.close().catch(() => {})
+  scan.cancelled = true
+  if (scan.mfaReject) {
+    try {
+      scan.mfaReject(new Error('扫码会话已结束'))
+    } catch {}
+    scan.mfaReject = undefined
+  }
+  scan.promise?.catch(() => {})
+  // 唤醒仍在等首图的请求，否则取消后它要空等到超时才返回
+  notifyQr(scan)
 }
 
 function sendHtml(res, status, body) {
@@ -594,14 +565,18 @@ async function saveWebSetup(session, body) {
 
   const cookieText = String(body.cookieText || '').trim()
   let ignored = 0
+  let previousAccount
+  if (session.accountId !== undefined) {
+    previousAccount = (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
+    if (!previousAccount) throw new Error('账号不存在，请重新发送修改命令')
+  }
   if (session.accountId === undefined) {
     if (!cookieText) throw new Error('请粘贴 Cookie JSON 或选择 .txt 文件')
     const parsed = parseCookies(cookieText)
     ignored = parsed.ignored
-    await addAccount({ userId: session.userId, name, cookies: parsed.cookies, targetNames, messageTemplate })
+    await addAccount({ userId: session.userId, name, cookies: parsed.cookies, targetNames, messageTemplate, douyinUid: String(body.douyinUid || '') })
   } else {
-    const account = (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
-    if (!account) throw new Error('账号不存在，请重新发送修改命令')
+    const account = previousAccount
     const parsed = cookieText ? parseCookies(cookieText) : { cookies: account.cookies, ignored: 0 }
     ignored = parsed.ignored
     await updateAccount({
@@ -611,6 +586,8 @@ async function saveWebSetup(session, body) {
       cookies: parsed.cookies,
       targetNames,
       messageTemplate,
+      // Cookie 或账号名变化后，旧连接不能继续复用；下次 getBot 会按新 Cookie 重建
+      douyinUid: cookieText ? String(body.douyinUid || '') : undefined,
     })
   }
   await setUserEmail(session.userId, email)
@@ -621,7 +598,7 @@ async function saveWebSetup(session, body) {
 function renderSetupPage(token, initial, editing) {
   const data = JSON.stringify(initial).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
   const title = editing ? '修改抖音账号' : '添加抖音账号'
-  return `<!doctype html>
+  return String.raw`<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
@@ -651,7 +628,16 @@ function renderSetupPage(token, initial, editing) {
     .scan button { justify-self: start; }
     .qr { display: none; width: min(360px, 100%); max-height: 360px; object-fit: contain; border: 1px solid #d7dee8; background: #fff; }
     .sms { display: none; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; }
+    .verify { display: none; color: #1976b7; font-size: 14px; }
     .sms input { min-width: 0; }
+    .picker { display: grid; gap: 8px; padding: 12px; border: 1px solid #d7dee8; border-radius: 5px; background: #f8fafc; }
+    .picker-list { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+    .picker-item { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 14px; padding: 4px 2px; }
+    .picker-item input { width: 16px; height: 16px; flex: none; }
+    .picker-item .tag { flex: none; font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #e3ebf3; color: #43566b; }
+    .picker-item .tag.group { background: #e6f0e8; color: #35603f; }
+    .picker-item .tag.nohist { background: #fbeadf; color: #8a4b21; }
+    .picker-empty { color: #667085; font-size: 13px; }
     #status { margin: 0; min-height: 20px; color: #b42318; font-size: 14px; }
     #status.ok { color: #087443; }
   </style>
@@ -662,6 +648,14 @@ function renderSetupPage(token, initial, editing) {
     <form id="setup-form">
       <label>账号名称<input id="name" maxlength="40" required></label>
       <label>目标会话<textarea id="targetNames" required placeholder="每行一个会话名称，也可粘贴 JSON 数组"></textarea></label>
+      <div class="picker">
+        <div class="scan-actions">
+          <button id="loadSessions" type="button">从抖音读取好友/群列表</button>
+          <button id="clearTargets" type="button" disabled>清空已选</button>
+        </div>
+        <span id="pickerStatus" class="hint">先填好 Cookie（扫码或粘贴）再点此按钮，可直接勾选要续火的会话，无需手打昵称。</span>
+        <div id="pickerList" class="picker-list"></div>
+      </div>
       <label>消息模板<textarea id="messageTemplate" placeholder="留空使用随机一言"></textarea></label>
       <label>失败通知邮箱<input id="email" type="email" placeholder="留空则不发送失败邮件"></label>
       <label class="check"><input id="successEmailEnabled" type="checkbox">续火成功时发送邮件通知</label>
@@ -669,13 +663,14 @@ function renderSetupPage(token, initial, editing) {
       <div class="scan">
         <div class="scan-actions">
           <button id="scanLogin" type="button">扫码获取 Cookie</button>
-          <button id="scanRefresh" type="button" disabled>刷新二维码</button>
+          <button id="scanRefresh" type="button" disabled>重新获取二维码</button>
         </div>
         <img id="scanQr" class="qr" alt="抖音登录二维码">
         <span id="scanStatus" class="hint">也可以直接粘贴 Cookie JSON 或选择 .txt 文件。</span>
-        <div id="smsVerify" class="sms">
-          <input id="smsCode" inputmode="numeric" autocomplete="one-time-code" placeholder="输入短信验证码">
-          <button id="smsSubmit" type="button">提交验证码</button>
+        <a id="verifyLink" class="verify" href="#" target="_blank" rel="noopener noreferrer" style="display:none">打开安全验证页面</a>
+        <div id="mfaVerify" class="sms">
+          <input id="mfaValue" autocomplete="one-time-code" placeholder="输入短信验证码">
+          <button id="mfaSubmit" type="button">提交</button>
         </div>
       </div>
       <label>Cookie JSON<textarea id="cookieText" class="cookie" ${editing ? '' : 'required'} placeholder="${editing ? '留空则保留当前 Cookie；需要更新时粘贴或选择 .txt 文件。' : '粘贴 Cookie-Editor 导出的 JSON 数组，或先选择 .txt 文件。'}"></textarea></label>
@@ -692,49 +687,98 @@ function renderSetupPage(token, initial, editing) {
     const scanRefresh = document.querySelector('#scanRefresh');
     const scanQr = document.querySelector('#scanQr');
     const scanStatus = document.querySelector('#scanStatus');
-    const smsVerify = document.querySelector('#smsVerify');
-    const smsCode = document.querySelector('#smsCode');
-    const smsSubmit = document.querySelector('#smsSubmit');
+    const mfaVerify = document.querySelector('#mfaVerify');
+    const mfaValue = document.querySelector('#mfaValue');
+    const mfaSubmit = document.querySelector('#mfaSubmit');
+    const verifyLink = document.querySelector('#verifyLink');
+    const loadSessions = document.querySelector('#loadSessions');
+    const clearTargets = document.querySelector('#clearTargets');
+    const pickerStatus = document.querySelector('#pickerStatus');
+    const pickerList = document.querySelector('#pickerList');
+    const targetNames = document.querySelector('#targetNames');
     let scanTimer;
+    let scanUid = '';
     for (const key of ['name', 'targetNames', 'messageTemplate', 'email']) document.querySelector('#' + key).value = initial[key] || '';
     document.querySelector('#successEmailEnabled').checked = Boolean(initial.successEmailEnabled);
     document.querySelector('#cookieFile').addEventListener('change', async event => {
       const file = event.target.files[0];
       if (!file) return;
-      if (!/\\.txt$/i.test(file.name)) { status.textContent = '仅支持 .txt 文件。'; return; }
+      if (!/\.txt$/i.test(file.name)) { status.textContent = '仅支持 .txt 文件。'; return; }
       if (file.size > 1024 * 1024) { status.textContent = '文件不能超过 1 MB。'; return; }
       document.querySelector('#cookieText').value = await file.text();
+      scanUid = '';
       status.textContent = '';
     });
+    document.querySelector('#cookieText').addEventListener('input', () => {
+      // 手动修改 Cookie 后，扫码得到的 UID 不再可信，交给服务端重新解析。
+      scanUid = '';
+    });
+    let mfaShown = '';
+    // 轮询每 2 秒会重复调用本函数，已显示的同一道验证不能重置输入框，否则会把用户
+    // 正在输入的验证码清掉（表现为「吞字符」）。
+    function showMfa(kind, maskedMobile) {
+      const key = (kind || 'sms') + '|' + (maskedMobile || '');
+      if (mfaShown === key) return;
+      mfaShown = key;
+      mfaVerify.style.display = 'grid';
+      mfaValue.value = '';
+      if (kind === 'password') {
+        mfaValue.type = 'password';
+        mfaValue.inputMode = 'text';
+        mfaValue.placeholder = '输入抖音登录密码';
+      } else {
+        mfaValue.type = 'text';
+        mfaValue.inputMode = 'numeric';
+        mfaValue.placeholder = '输入短信验证码' + (maskedMobile ? '（' + maskedMobile + '）' : '');
+      }
+    }
     async function requestQr(endpoint, loadingText) {
       scanLogin.disabled = true;
       scanRefresh.disabled = true;
-      smsVerify.style.display = 'none';
-      smsCode.value = '';
+      mfaVerify.style.display = 'none';
+      mfaShown = '';
+      verifyLink.style.display = 'none';
+      scanQr.style.display = 'none';
+      scanQr.removeAttribute('src');
+      delete scanQr.dataset.qr;
       scanStatus.textContent = loadingText;
       try {
         const response = await fetch(endpoint, { method: 'POST' });
         const data = await response.json();
         if (!data.ok) throw new Error(data.message || '启动扫码登录失败');
-        if (data.qr) { scanQr.src = data.qr; scanQr.style.display = 'block'; }
-        scanStatus.textContent = '请使用抖音 App 扫码登录，二维码有效期以页面为准。';
+        if (data.qr) {
+          scanQr.dataset.qr = data.qr;
+          scanQr.src = data.qr;
+          scanQr.style.display = 'block';
+        }
+        scanStatus.textContent = data.message || '请使用抖音 App 扫码登录。';
+        if (!data.qr) scanStatus.textContent = '正在获取二维码，请稍候…';
         scanRefresh.disabled = false;
         clearInterval(scanTimer);
         scanTimer = setInterval(async () => {
           try {
             const result = await (await fetch('${webState.prefix}/api/scan/status/${token}', { cache: 'no-store' })).json();
             if (!result.ok) throw new Error(result.message || '读取扫码状态失败');
+            if (result.qr && scanQr.dataset.qr !== result.qr) {
+              scanQr.dataset.qr = result.qr;
+              scanQr.src = result.qr;
+              scanQr.style.display = 'block';
+            }
+            if (result.verifyUrl) { verifyLink.href = result.verifyUrl; verifyLink.style.display = 'inline-block'; }
+            if (result.message) scanStatus.textContent = result.message;
             if (result.status === 'success') {
               clearInterval(scanTimer);
-              smsVerify.style.display = 'none';
+              mfaVerify.style.display = 'none';
+              verifyLink.style.display = 'none';
               document.querySelector('#cookieText').value = JSON.stringify(result.cookies, null, 2);
-              scanStatus.textContent = '扫码登录成功，Cookie 已填入下方文本框，请继续提交。';
+              // login() 返回的 userId 是权威身份，落库后下次续火不必再解析
+              if (result.douyinUid) scanUid = String(result.douyinUid);
+              scanStatus.textContent = result.message || '扫码登录成功，Cookie 已填入下方文本框，请继续提交。';
               scanLogin.disabled = false;
               scanRefresh.disabled = false;
               scanLogin.textContent = '重新扫码';
-            } else if (result.status === 'sms') {
-              smsVerify.style.display = 'grid';
-              scanStatus.textContent = result.message || '请输入短信验证码。';
+            } else if (result.status === 'mfa') {
+              showMfa(result.mfa && result.mfa.kind, result.mfa && result.mfa.maskedMobile);
             } else if (result.status === 'error') {
               throw new Error(result.message || '扫码登录失败');
             }
@@ -751,23 +795,96 @@ function renderSetupPage(token, initial, editing) {
         scanRefresh.disabled = false;
       }
     }
-    scanLogin.addEventListener('click', () => requestQr('${webState.prefix}/api/scan/start/${token}', '正在打开抖音登录页...'));
-    scanRefresh.addEventListener('click', () => requestQr('${webState.prefix}/api/scan/refresh/${token}', '正在刷新二维码...'));
-    smsSubmit.addEventListener('click', async () => {
-      const code = smsCode.value.trim();
-      if (!/^\\d{4,8}$/.test(code)) { scanStatus.textContent = '请输入 4 到 8 位短信验证码。'; return; }
-      smsSubmit.disabled = true;
+    scanLogin.addEventListener('click', () => requestQr('${webState.prefix}/api/scan/start/${token}', '正在获取登录二维码...'));
+    scanRefresh.addEventListener('click', () => requestQr('${webState.prefix}/api/scan/start/${token}', '正在重新获取二维码...'));
+    mfaSubmit.addEventListener('click', async () => {
+      const value = mfaValue.value.trim();
+      if (!value) { scanStatus.textContent = '请输入验证码或密码。'; return; }
+      mfaSubmit.disabled = true;
       try {
-        const response = await fetch('${webState.prefix}/api/scan/sms/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+        const response = await fetch('${webState.prefix}/api/scan/mfa/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
         const data = await response.json();
-        if (!data.ok) throw new Error(data.message || '提交短信验证码失败');
-        scanStatus.textContent = data.message || '验证码已提交，请等待登录结果。';
+        if (!data.ok) throw new Error(data.message || '提交二次验证失败');
+        mfaVerify.style.display = 'none';
+        mfaShown = '';
+        scanStatus.textContent = data.message || '已提交，请等待登录结果。';
       } catch (error) {
-        scanStatus.textContent = error.message || '提交短信验证码失败';
+        scanStatus.textContent = error.message || '提交二次验证失败';
       } finally {
-        smsSubmit.disabled = false;
+        mfaSubmit.disabled = false;
       }
     });
+
+    // ---- 会话选择器 ----
+    // 勾选结果直接写回「目标会话」文本框，保持文本框为唯一数据源，
+    // 用户仍可手工增删，提交逻辑无需改动。
+    function currentTargets() {
+      return targetNames.value.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+    }
+    function writeTargets(list) {
+      targetNames.value = [...new Set(list)].join('\n');
+      clearTargets.disabled = currentTargets().length === 0;
+    }
+    function renderPicker(items) {
+      pickerList.innerHTML = '';
+      if (!items.length) {
+        const empty = document.createElement('span');
+        empty.className = 'picker-empty';
+        empty.textContent = '没有读到任何会话。抖音只返回「有过消息往来」的会话，请先在抖音里给对方发过消息。';
+        pickerList.appendChild(empty);
+        return;
+      }
+      const selected = new Set(currentTargets());
+      for (const item of items) {
+        const row = document.createElement('label');
+        row.className = 'picker-item';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = selected.has(item.name);
+        box.addEventListener('change', () => {
+          const now = new Set(currentTargets());
+          if (box.checked) now.add(item.name); else now.delete(item.name);
+          writeTargets([...now]);
+        });
+        const tag = document.createElement('span');
+        tag.className = 'tag' + (item.type === 'group' ? ' group' : '') + (item.hasHistory ? '' : ' nohist');
+        tag.textContent = item.type === 'group' ? '群' : (item.hasHistory ? '好友' : '好友·无记录');
+        const text = document.createElement('span');
+        text.textContent = item.name;
+        row.append(box, tag, text);
+        pickerList.appendChild(row);
+      }
+      clearTargets.disabled = currentTargets().length === 0;
+    }
+
+    loadSessions.addEventListener('click', async () => {
+      const cookieRaw = document.querySelector('#cookieText').value.trim();
+      if (!cookieRaw && !${editing}) { pickerStatus.textContent = '请先扫码获取 Cookie 或粘贴 Cookie JSON，再读取会话列表。'; return; }
+      loadSessions.disabled = true;
+      pickerStatus.textContent = '正在连接抖音并读取会话列表…';
+      pickerList.innerHTML = '';
+      try {
+        const response = await fetch('${webState.prefix}/api/sessions/${token}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookies: cookieRaw, name: document.querySelector('#name').value.trim() }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.message || '读取会话列表失败');
+        renderPicker(data.items || []);
+        pickerStatus.textContent = '共 ' + (data.items || []).length + ' 个会话，勾选后会自动写入上方「目标会话」。';
+      } catch (error) {
+        pickerStatus.textContent = error.message || '读取会话列表失败';
+      } finally {
+        loadSessions.disabled = false;
+      }
+    });
+    clearTargets.addEventListener('click', () => {
+      writeTargets([]);
+      pickerList.querySelectorAll('input[type=checkbox]').forEach(box => { box.checked = false; });
+      pickerStatus.textContent = '已清空，可重新勾选。';
+    });
+
     form.addEventListener('submit', async event => {
       event.preventDefault();
       clearInterval(scanTimer);
@@ -779,6 +896,7 @@ function renderSetupPage(token, initial, editing) {
       payload.email = document.querySelector('#email').value;
       payload.successEmailEnabled = document.querySelector('#successEmailEnabled').checked;
       payload.cookieText = document.querySelector('#cookieText').value;
+      payload.douyinUid = scanUid;
       try {
         const response = await fetch('${webState.prefix}/api/setup/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await response.json();

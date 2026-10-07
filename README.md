@@ -1,6 +1,6 @@
 # 抖音续火 Yunzai 插件
 
-一个自动给抖音续火的 TRSS-Yunzai 插件，每位 QQ 用户可通过机器人添加自己的多个抖音账号并配置续火内容。插件使用 Playwright 打开抖音聊天页并向指定会话发送随机一言或自定义消息。
+一个自动给抖音续火的 TRSS-Yunzai 插件，每位 QQ 用户可通过机器人添加自己的多个抖音账号并配置续火内容。插件通过 [douyin.ts](https://www.npmjs.com/package/douyin.ts) 走抖音 IM 协议直连，按会话名解析出 `chatId` 后向指定会话发送随机一言或自定义消息，不需要浏览器。
 
 ## 安装
 
@@ -11,22 +11,18 @@ git clone -b yunzai-plugin --single-branch https://github.com/LiuYunLingNai/douy
 pnpm install
 ```
 
-插件默认开启 `browser.preferSystem`，启动时会自动探测并复用系统已安装的 Edge、Chrome 或 Chromium，无需额外下载浏览器。若日志中出现「已复用系统浏览器」，说明探测成功。
+所有依赖（含 `douyin.ts` 和平台原生绑定）会在上述安装命令执行时从 npm 安装到 `plugins/douyin-auto-spark/node_modules`，无需下载浏览器或额外构建。
 
-仅当系统没有安装任何浏览器时，才需要额外下载 Playwright 自带的 Chromium：
+建议使用 Node.js 24.12 或更新的受支持版本，安装依赖时请保留可选依赖，以便安装 SDK 所需的平台原生绑定。
 
-```bash
-pnpm --dir plugins/douyin-auto-spark exec playwright install chromium
-```
-
-首次启动会自动创建 `plugins/douyin-auto-spark/config/config.yaml`，可在 Guoba 或该文件配置浏览器、默认消息、定时任务和 SMTP。浏览器解析优先级为：`browser.executablePath` 手填路径 > `browser.channel` 渠道 > `browser.preferSystem` 自动探测 > Playwright 自带 Chromium。
+首次启动会自动创建 `plugins/douyin-auto-spark/config/config.yaml`，可在 Guoba 或该文件配置默认消息、定时任务和 SMTP。
 
 ## 账号配置
 
 向机器人发送 `#抖音添加账号`，机器人会发送一次性网页链接。该命令可在群聊或私聊使用；修改已有账号必须私聊发送 `#抖音修改账号 账号名`。网页内填写：
 
 1. 本账号的别名。
-2. 点击“扫码获取 Cookie”，打开抖音聊天页中的登录二维码，用抖音 App 扫码；登录成功后 Cookie 会自动填入。若抖音要求身份验证，插件会自动点击“接收短信验证码”，你只需把收到的验证码填入网页。若二维码过期或扫码后状态没有刷新，点击“刷新二维码”重新获取。若抖音触发其他安全验证，可改用 Cookie-Editor 导出的完整 Cookie JSON 数组，直接粘贴或选择 `.txt` 文件。
+2. 点击“扫码获取 Cookie”，插件会通过协议向抖音请求登录二维码并显示在页面上，用抖音 App 扫码；登录成功后 Cookie 会自动填入。若抖音要求二次验证，页面会出现验证码输入框（短信验证码）或跳转链接（去抖音 App 内完成确认），按其提示操作即可。二维码有有效期，过期或长时间未刷新时点击“重新获取二维码”。若扫描流程被风控拦截，可改用 Cookie-Editor 导出的完整 Cookie JSON 数组，直接粘贴或选择 `.txt` 文件。
 3. 需要续火的会话名，可逐行输入或粘贴 JSON 数组。
 4. 自定义消息模板和失败通知收件邮箱。
 
@@ -133,6 +129,8 @@ web:
 
 定时任务默认每天 00:10 执行数据库内全部账号；可在 Guoba 或 `config/config.yaml` 修改 `schedule.cron`，设置 `schedule.enabled: false` 后会自动关闭定时任务。
 
+每个账号续火结束后都会断开 SDK 连接，无论任务成功还是失败；网页读取会话列表后也会断开。Cookie 会继续保留，下次任务重新建立连接，无需每次扫码。
+
 ## SMTP 失败通知
 
 ```yaml
@@ -146,7 +144,7 @@ smtp:
   from: your@qq.com
 ```
 
-SMTP 主机、端口、发件人和授权码由管理员全局配置。每位用户需设置自己的收件邮箱才会接收邮件；失败邮件默认发送，成功邮件由用户在网页中勾选或私聊发送 `#抖音成功邮件开启` 后发送。失败时只会发送该用户账号的错误和截图，不会包含其他用户信息。
+SMTP 主机、端口、发件人和授权码由管理员全局配置。每位用户需设置自己的收件邮箱才会接收邮件；失败邮件默认发送，成功邮件由用户在网页中勾选或私聊发送 `#抖音成功邮件开启` 后发送。失败时只会发送该用户账号的错误信息，不会包含其他用户信息。
 
 ## 消息模板
 
