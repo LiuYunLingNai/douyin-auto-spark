@@ -4,7 +4,7 @@ import { login } from 'douyin.ts'
 import { getConfig } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
-import { toCookieArray, createSdkLog, getBot, hydrateFriendNames, closeBot, toCookieHeader } from './douyin.js'
+import { toCookieArray, createSdkLog, getBot, hydrateFriendNames, closeBot, toCookieHeader, listAllChats } from './douyin.js'
 
 const mountedRoutePrefix = '/douyin-auto-spark'
 const standaloneRoutePrefix = '/douyin-auto-spark'
@@ -235,10 +235,7 @@ async function handleSessionList(token, body, res) {
 
   try {
     const self = String(bot.id || '')
-    const [rawFriends, groups] = await Promise.all([
-      bot.frd.list(),
-      bot.grp.list(),
-    ])
+    const { friends: rawFriends, groups } = await listAllChats(bot)
     // 好友昵称要二次补全：会话列表接口返回的 nickname 恒为空，补全后才能拿到会话名
     const friends = await hydrateFriendNames(bot, rawFriends)
     const items = []
