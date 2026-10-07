@@ -11,7 +11,7 @@
  * 它也从不依赖自举，而是把 uid 落库后直接交给 IM 客户端）。
  */
 import util from 'node:util'
-import { Bot, chatIdOf } from 'douyin.ts'
+import { Bot } from 'douyin.ts'
 import { getConfig } from './config.js'
 
 /** Cookie 属性字段：这些不是键值对，转 header 串时丢弃 */
@@ -249,51 +249,9 @@ export function closeAllBots() {
  *
  * 旧实现是在聊天页统一搜索，好友与群都能命中，因此这里也必须合并查找。
  */
-export async function listAllFriends(bot) {
-  const im = bot.im()
-  const transport = im.transport
-  if (typeof transport?.sendCookieProto !== 'function') {
-    throw new Error('当前 douyin.ts 版本不支持好友列表分页，请检查 SDK 版本')
-  }
-  const original = transport.sendCookieProto
-  const query = Object.create(im)
-  const queryTransport = Object.create(transport)
-  query.inboxCtx = { ...im.inboxCtx, transport: queryTransport }
-  let responseBody
-  queryTransport.sendCookieProto = async function (...args) {
-    const response = await original.apply(transport, args)
-    if (args[0] === 203) responseBody = response?.body?.inbox
-    return response
-  }
-  try {
-    const friends = new Map()
-    const cursors = new Set()
-    let cursor = 0
-    for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
-      const cursorKey = String(cursor)
-      if (cursors.has(cursorKey)) throw new Error('好友列表游标未推进')
-      cursors.add(cursorKey)
-      responseBody = undefined
-      const page = await query.getFriendList({ cursor, count: 20 })
-      if (!responseBody) throw new Error('好友列表缺少分页响应')
-      for (const friend of page) {
-        const key = String(friend.uid || friend.chatId)
-        if (key) friends.set(key, { ...friend, chatId: chatIdOf({ ...friend, conversationType: 1 }) })
-      }
-      if (!Number(responseBody.hasMore)) return [...friends.values()]
-      const nextCursor = Number(responseBody.nextCursor)
-      if (!Number.isSafeInteger(nextCursor) || nextCursor < 0) throw new Error('好友列表返回了无效游标')
-      cursor = nextCursor
-    }
-    throw new Error('好友列表分页超过 100 页，无法确认已获取完整列表')
-  } finally {
-    queryTransport.sendCookieProto = original
-  }
-}
-
 export async function buildChatIndex(bot) {
   const [rawFriends, groups] = await Promise.all([
-    listAllFriends(bot),
+    bot.frd.list(),
     bot.grp.list(),
   ])
   // 好友昵称需二次补全：会话列表接口返回的 nickname 恒为空

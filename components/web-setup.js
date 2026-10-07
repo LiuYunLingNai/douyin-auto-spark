@@ -4,7 +4,7 @@ import { login } from 'douyin.ts'
 import { getConfig } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
-import { toCookieArray, createSdkLog, getBot, hydrateFriendNames, closeBot, toCookieHeader, listAllFriends } from './douyin.js'
+import { toCookieArray, createSdkLog, getBot, hydrateFriendNames, closeBot, toCookieHeader } from './douyin.js'
 
 const mountedRoutePrefix = '/douyin-auto-spark'
 const standaloneRoutePrefix = '/douyin-auto-spark'
@@ -236,7 +236,7 @@ async function handleSessionList(token, body, res) {
   try {
     const self = String(bot.id || '')
     const [rawFriends, groups] = await Promise.all([
-      listAllFriends(bot),
+      bot.frd.list(),
       bot.grp.list(),
     ])
     // 好友昵称要二次补全：会话列表接口返回的 nickname 恒为空，补全后才能拿到会话名
@@ -245,10 +245,10 @@ async function handleSessionList(token, body, res) {
     const seen = new Set()
     const push = (name, chatId, type, lastMessage, uid) => {
       const key = String(name || '').trim()
-      if (!key || !chatId || seen.has(key)) return
+      if (!key || !chatId || seen.has(chatId)) return
       // 自己与自己的会话：好友会话两端 uid 都是自己，发给它必被 invalid receiverId 拒绝
       if (type === 'friend' && String(uid) === self) return
-      seen.add(key)
+      seen.add(chatId)
       items.push({ name: key, chatId, type, hasHistory: Boolean(lastMessage) })
     }
     for (const friend of friends) push(friend.nickname, friend.chatId, 'friend', friend.lastMessage, friend.uid)
@@ -655,6 +655,11 @@ function renderSetupPage(token, initial, editing) {
         </div>
         <span id="pickerStatus" class="hint">先填好 Cookie（扫码或粘贴）再点此按钮，可直接勾选要续火的会话，无需手打昵称。</span>
         <div id="pickerList" class="picker-list"></div>
+        <div class="scan-actions" id="pickerPages" hidden>
+          <button id="pickerPrev" type="button">上一页</button>
+          <span id="pickerPageInfo" class="hint"></span>
+          <button id="pickerNext" type="button">下一页</button>
+        </div>
       </div>
       <label>消息模板<textarea id="messageTemplate" placeholder="留空使用随机一言"></textarea></label>
       <label>失败通知邮箱<input id="email" type="email" placeholder="留空则不发送失败邮件"></label>
@@ -825,12 +830,25 @@ function renderSetupPage(token, initial, editing) {
       targetNames.value = [...new Set(list)].join('\n');
       clearTargets.disabled = currentTargets().length === 0;
     }
-    function renderPicker(items) {
+    let pickerItems = [];
+    let pickerPage = 0;
+    const pickerPageSize = 20;
+    const pickerPages = document.querySelector('#pickerPages');
+    const pickerPrev = document.querySelector('#pickerPrev');
+    const pickerNext = document.querySelector('#pickerNext');
+    const pickerPageInfo = document.querySelector('#pickerPageInfo');
+    function renderPickerPage() {
+      const pageCount = Math.ceil(pickerItems.length / pickerPageSize);
+      pickerPages.hidden = pageCount <= 1;
+      pickerPrev.disabled = pickerPage === 0;
+      pickerNext.disabled = pickerPage >= pageCount - 1;
+      pickerPageInfo.textContent = '第 ' + (pickerPage + 1) + ' / ' + pageCount + ' 页';
+      const items = pickerItems.slice(pickerPage * pickerPageSize, (pickerPage + 1) * pickerPageSize);
       pickerList.innerHTML = '';
       if (!items.length) {
         const empty = document.createElement('span');
         empty.className = 'picker-empty';
-        empty.textContent = '没有读到任何会话。抖音只返回「有过消息往来」的会话，请先在抖音里给对方发过消息。';
+        empty.textContent = '没有读到可选会话，请检查登录状态后重试。';
         pickerList.appendChild(empty);
         return;
       }
@@ -857,12 +875,25 @@ function renderSetupPage(token, initial, editing) {
       clearTargets.disabled = currentTargets().length === 0;
     }
 
+    function renderPicker(items) {
+      pickerItems = items;
+      pickerPage = 0;
+      renderPickerPage();
+    }
+    pickerPrev.addEventListener('click', () => {
+      if (pickerPage > 0) { pickerPage -= 1; renderPickerPage(); }
+    });
+    pickerNext.addEventListener('click', () => {
+      if ((pickerPage + 1) * pickerPageSize < pickerItems.length) { pickerPage += 1; renderPickerPage(); }
+    });
+    targetNames.addEventListener('input', () => renderPickerPage());
+
     loadSessions.addEventListener('click', async () => {
       const cookieRaw = document.querySelector('#cookieText').value.trim();
       if (!cookieRaw && !${editing}) { pickerStatus.textContent = '请先扫码获取 Cookie 或粘贴 Cookie JSON，再读取会话列表。'; return; }
       loadSessions.disabled = true;
       pickerStatus.textContent = '正在连接抖音并读取会话列表…';
-      pickerList.innerHTML = '';
+      renderPicker([]);
       try {
         const response = await fetch('${webState.prefix}/api/sessions/${token}', {
           method: 'POST',
