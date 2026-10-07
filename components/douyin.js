@@ -11,7 +11,7 @@
  * 它也从不依赖自举，而是把 uid 落库后直接交给 IM 客户端）。
  */
 import util from 'node:util'
-import { Bot, chatIdOf } from 'douyin.ts'
+import { Bot } from 'douyin.ts'
 import { getConfig } from './config.js'
 
 /** Cookie 属性字段：这些不是键值对，转 header 串时丢弃 */
@@ -249,70 +249,11 @@ export function closeAllBots() {
  *
  * 旧实现是在聊天页统一搜索，好友与群都能命中，因此这里也必须合并查找。
  */
-/** SDK 0.6.2 的列表方法丢弃分页信息，在协议响应处保留服务端游标。 */
-export async function listAllChats(bot) {
-  const im = bot.im()
-  const friends = await listAllPages(im, 'getFriendList', 203, 'inbox', '好友')
-  const groups = await listAllPages(im, 'getGroupList', 2006, 'conversationList', '群聊')
-  return {
-    friends: friends.map((friend) => ({ ...friend, chatId: chatIdOf({ ...friend, conversationType: 1 }) })),
-    groups: groups.map((group) => ({ ...group, chatId: chatIdOf({ ...group, conversationType: 2 }) })),
-  }
-}
-
-async function listAllPages(im, method, command, bodyKey, label) {
-  // transport 是 SDK 0.6.2 的内部字段；不匹配时明确报错，避免展示不完整的列表。
-  const transport = im.transport
-  if (typeof transport?.sendCookieProto !== 'function') {
-    throw new Error('当前 douyin.ts 版本不支持会话分页，请检查 SDK 版本')
-  }
-  const original = transport.sendCookieProto
-  const values = new Map()
-  const cursors = new Set()
-  const pageSize = 100
-  let cursor = 0
-  let responseBody
-  transport.sendCookieProto = async function (...args) {
-    const response = await original.apply(this, args)
-    if (args[0] === command) responseBody = response?.body?.[bodyKey]
-    return response
-  }
-  try {
-    for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
-      if (cursors.has(String(cursor))) throw new Error(label + '列表游标未推进')
-      cursors.add(String(cursor))
-      responseBody = undefined
-      const page = await im[method]({ cursor, count: pageSize })
-      if (!responseBody) throw new Error(label + '列表缺少分页响应')
-      let added = 0
-      for (const value of page) {
-        const key = String(value.conversationId)
-        if (!values.has(key)) added += 1
-        values.set(key, value)
-      }
-      if (command === 203) {
-        if (!Number(responseBody.hasMore)) return [...values.values()]
-        const next = String(responseBody.nextCursor ?? '')
-        const numericCursor = Number(next)
-        if (!next || !Number.isSafeInteger(numericCursor)) {
-          throw new Error(label + '列表返回了无效游标')
-        }
-        cursor = numericCursor
-      } else {
-        // cmd 2006 的 SDK 协议没有 has_more，以未过滤的会话数推进偏移。
-        const rawCount = responseBody.conversations?.length ?? 0
-        if (rawCount === 0 || (pageNumber > 0 && added === 0)) return [...values.values()]
-        cursor += rawCount
-      }
-    }
-    throw new Error(label + '列表分页超过 100 页，无法确认已获取完整列表')
-  } finally {
-    transport.sendCookieProto = original
-  }
-}
-
 export async function buildChatIndex(bot) {
-  const { friends: rawFriends, groups } = await listAllChats(bot)
+  const [rawFriends, groups] = await Promise.all([
+    bot.frd.list(),
+    bot.grp.list(),
+  ])
   // 好友昵称需二次补全：会话列表接口返回的 nickname 恒为空
   const friends = await hydrateFriendNames(bot, rawFriends)
   const index = new Map()
