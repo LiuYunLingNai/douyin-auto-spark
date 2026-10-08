@@ -38,4 +38,5 @@ render:
   enabled: true
   # 一次性链接（添加 / 修改 / 管理账号）是否也出图
   # 默认 false：直接发送纯文字链接，保证手机端可点击、可长按复制
+  # 面板不提供此开关，如需开启请手动改为 true
   linkCard: false
