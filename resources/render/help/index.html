@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>{{helpCfg.title}} · 使用帮助</title>
+  <link rel="stylesheet" href="{{_res_path}}render/common.css">
+  <link rel="stylesheet" href="{{_res_path}}render/help/style.css">
+  <style>
+    /* 列宽按 helpCfg.colCount 计算（miao HelpTheme 的同款逻辑） */
+    .help-table .td { width: {{100 / colCount}}%; }
+  </style>
+</head>
+<body>
+<div id="container">
+
+  <!-- 顶部横幅 -->
+  <div class="hero">
+    <span class="accent-bar"></span>
+    <div class="hero-inner">
+      <div class="logo">
+        <svg viewBox="0 0 24 24">
+          <g fill="none" stroke="#25F4EE" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(-0.6,-0.6)">
+            <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+          </g>
+          <g fill="none" stroke="#FE2C55" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(0.6,0.6)">
+            <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+          </g>
+          <g fill="none" stroke="#fff" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+          </g>
+        </svg>
+      </div>
+      <div>
+        <div class="title">{{helpCfg.title}}</div>
+        <div class="label">{{helpCfg.subTitle}}</div>
+      </div>
+      <div class="ver">v{{version}}</div>
+    </div>
+
+    <div class="hero-stats">
+      <div class="hs"><span class="n mg">{{accountCount}}</span><span class="l">我的账号</span></div>
+      <div class="hs"><span class="n">{{targetCount}}</span><span class="l">续火会话</span></div>
+      <div class="hs"><span class="n" style="font-size:15px; color:var(--t2); font-family:var(--font);">{{scheduleDesc}}</span><span class="l">定时任务</span></div>
+    </div>
+  </div>
+
+  <!-- 指令分组 -->
+  {{each helpGroup group}}
+  <div class="cont-box">
+    <div class="help-group">
+      <span class="g-ico">{{@group.icon}}</span>
+      <span class="g-name">{{group.group}}</span>
+      <span class="g-count">{{group.list.length}} 条指令{{if group.auth === 'master'}} · 仅主人{{/if}}</span>
+    </div>
+    <div class="help-table">
+      {{each group.list item}}
+      <div class="td">
+        {{if item.icon}}
+        <span class="help-icon {{if group.auth === 'master'}}master{{/if}}">{{@item.icon}}</span>
+        {{/if}}
+        <span class="help-text">
+          <strong class="help-title">{{item.title}}</strong>
+          <span class="help-desc">{{item.desc}}</span>
+        </span>
+      </div>
+      {{/each}}
+    </div>
+  </div>
+  {{/each}}
+
+  <div class="help-foot">
+    点击下方按钮快捷操作 · 网页链接请勿转发他人<br>
+    <span class="cy">Cookie 仅保存在本地数据库</span> · 仅供学习交流
+  </div>
+</div>
+</body>
+</html>

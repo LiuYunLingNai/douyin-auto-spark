@@ -32,3 +32,7 @@ web:
   recallSetupMessageOnComplete: false
   # 网页链接发送后自动撤回秒数，0 表示不自动撤回
   setupMessageRecallSeconds: 0
+
+render:
+  # 图片卡片输出（帮助 / 账号列表 / 续火结果），关闭后回退纯文字
+  enabled: true

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>抖音续火 · 执行结果</title>
+  <link rel="stylesheet" href="{{_res_path}}render/common.css">
+</head>
+<body>
+<div id="container">
+
+  <!-- 页头 -->
+  <header class="page-head">
+    <div class="logo">
+      <svg viewBox="0 0 24 24">
+        <g fill="none" stroke="#25F4EE" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(-0.6,-0.6)">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+        <g fill="none" stroke="#FE2C55" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(0.6,0.6)">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+        <g fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+      </svg>
+    </div>
+    <div class="title-box">
+      <div class="title">续火执行结果</div>
+      <div class="subtitle">{{time}} · {{trigger}}</div>
+    </div>
+    {{if failCount}}
+    <span class="status-pill tag tag-err">部分失败</span>
+    {{else}}
+    <span class="status-pill tag tag-ok">全部成功</span>
+    {{/if}}
+  </header>
+
+  <!-- 概览统计 -->
+  <div class="stat-grid g3">
+    <div class="stat-cell"><div class="num c1">{{sent}}</div><div class="lab">成功发送 / 条</div></div>
+    <div class="stat-cell"><div class="num c-ok">{{okCount}}</div><div class="lab">成功账号</div></div>
+    <div class="stat-cell"><div class="num {{if failCount}}c-err{{else}}c-ok{{/if}}">{{failCount}}</div><div class="lab">失败账号</div></div>
+  </div>
+
+  {{if okCount}}
+  <!-- 成功明细 -->
+  <div class="res-list" style="margin-bottom: 24px;">
+    {{each successes item}}
+    <div class="res-item ok">
+      <span class="dot-i"></span>
+      <div class="body">
+        <div class="r-name">{{item.accountName}}</div>
+      </div>
+      <div class="r-count">{{item.sent}} 条</div>
+    </div>
+    {{/each}}
+  </div>
+  {{/if}}
+
+  {{if failCount}}
+  <!-- 失败明细 -->
+  <div class="res-list" style="margin-bottom: 24px;">
+    {{each failures item}}
+    <div class="res-item fail">
+      <span class="dot-i"></span>
+      <div class="body">
+        <div class="r-name">{{item.accountName}}</div>
+        <div class="r-msg">{{item.message}}</div>
+      </div>
+    </div>
+    {{/each}}
+  </div>
+  {{/if}}
+
+  <div class="page-foot">
+    {{if failCount}}失败的账号可点击下方按钮单独重试 · 检查 Cookie 与会话名后再次执行{{else}}明天见，火花已续上 🔥{{/if}}
+  </div>
+</div>
+</body>
+</html>

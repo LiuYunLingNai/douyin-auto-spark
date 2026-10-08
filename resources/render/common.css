@@ -1,0 +1,183 @@
+/* ============================================================
+ * 抖音续火 · 设计 Token（douyin-ui-spec §1~§4）
+ * 深色 #161823 体系 / 洋红 #FE2C55 / 青 #25F4EE / 8px 栅格
+ * ============================================================ */
+:root {
+  /* 品牌色 */
+  --magenta: #FE2C55;
+  --magenta-hover: #FF4D6F;
+  --magenta-deep: #D91F47;
+  --cyan: #25F4EE;
+  --cyan-light: #7FF9F4;
+  --cyan-deep: #12C9C3;
+  /* 中性色（偏蓝黑调） */
+  --bg0: #161823;
+  --bg1: #1C1E2C;
+  --bg2: #232637;
+  --bg3: #2E3245;
+  --t1: #FFFFFF;
+  --t2: rgba(255, 255, 255, .72);
+  --t3: rgba(255, 255, 255, .50);
+  --t4: rgba(255, 255, 255, .30);
+  --line: rgba(255, 255, 255, .08);
+  --line-strong: rgba(255, 255, 255, .14);
+  /* 功能色 */
+  --ok: #2EDB81;
+  --warn: #FFC53D;
+  --err: #FF4D4F;
+  --purple: #7C5CFF;
+  /* 字体 */
+  --font: "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei", sans-serif;
+  --mono: "DIN Alternate", "Bahnschrift", "Barlow Condensed", Consolas, monospace;
+  /* 圆角 */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ============ 画布（截图容器） ============ */
+#container {
+  width: 900px;
+  background: var(--bg0);
+  color: var(--t1);
+  font-family: var(--font);
+  font-size: 18px;
+  line-height: 1.6;
+  padding: 40px;
+  position: relative;
+  background-image:
+    radial-gradient(ellipse 60% 30% at 88% -5%, rgba(254, 44, 85, .10), transparent),
+    radial-gradient(ellipse 45% 25% at 8% 105%, rgba(37, 244, 238, .06), transparent);
+}
+
+/* ============ 页头 ============ */
+.page-head { display: flex; align-items: center; gap: 18px; margin-bottom: 32px; }
+.page-head .logo { width: 56px; height: 56px; flex-shrink: 0; position: relative; }
+.page-head .logo svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.page-head .title-box { flex: 1; min-width: 0; }
+.page-head .title {
+  font-size: 40px; font-weight: 700; line-height: 1.2; letter-spacing: 1px;
+}
+.page-head .subtitle { font-size: 15px; color: var(--t3); margin-top: 4px; font-family: var(--mono); }
+.page-head .ver-pill {
+  flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--magenta);
+  background: rgba(254, 44, 85, .14); border: 1px solid rgba(254, 44, 85, .4);
+  padding: 4px 14px; border-radius: 999px;
+}
+.page-head .status-pill { flex-shrink: 0; }
+
+/* ============ 状态标签 ============ */
+.tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 13.5px; font-weight: 600; padding: 4px 14px; border-radius: 999px;
+}
+.tag-ok { background: rgba(46, 219, 129, .12); color: var(--ok); border: 1px solid rgba(46, 219, 129, .4); }
+.tag-warn { background: rgba(255, 197, 61, .12); color: var(--warn); border: 1px solid rgba(255, 197, 61, .4); }
+.tag-err { background: rgba(255, 77, 79, .12); color: var(--err); border: 1px solid rgba(255, 77, 79, .4); }
+.tag-hot { background: rgba(254, 44, 85, .14); color: var(--magenta); border: 1px solid rgba(254, 44, 85, .4); }
+.tag-cyan { background: rgba(37, 244, 238, .10); color: var(--cyan); border: 1px solid rgba(37, 244, 238, .35); }
+
+/* ============ 统计格 ============ */
+.stat-grid {
+  display: grid; gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden;
+  margin-bottom: 24px;
+}
+.stat-grid.g3 { grid-template-columns: repeat(3, 1fr); }
+.stat-grid.g4 { grid-template-columns: repeat(4, 1fr); }
+.stat-cell { background: var(--bg1); padding: 20px 12px; text-align: center; }
+.stat-cell .num { font-family: var(--mono); font-size: 28px; font-weight: 700; }
+.stat-cell .num.c1 { color: var(--magenta); }
+.stat-cell .num.c2 { color: var(--cyan); }
+.stat-cell .num.c-ok { color: var(--ok); }
+.stat-cell .num.c-err { color: var(--err); }
+.stat-cell .lab { font-size: 13px; color: var(--t3); margin-top: 6px; }
+
+/* ============ 卡片 ============ */
+.card {
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 24px 28px; margin-bottom: 24px;
+}
+.card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.card-head .ico { width: 30px; height: 30px; color: var(--cyan); display: flex; }
+.card-head .ico svg { width: 100%; height: 100%; }
+.card-head .name { font-size: 22px; font-weight: 600; }
+.card-head .desc { font-size: 14px; color: var(--t4); margin-left: auto; }
+
+/* 指令行 */
+.cmd-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 14px; border-radius: var(--r-md);
+}
+.cmd-row:nth-child(odd) { background: rgba(255, 255, 255, .03); }
+.cmd-row .cmd { font-family: var(--mono); font-size: 16px; font-weight: 600; color: var(--cyan-light); flex-shrink: 0; }
+.cmd-row .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--t4); flex-shrink: 0; }
+.cmd-row .desc { font-size: 15px; color: var(--t2); }
+
+/* ============ 账号条目 ============ */
+.acc-item {
+  display: flex; align-items: center; gap: 18px;
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 20px 24px; margin-bottom: 16px;
+}
+.acc-item:last-child { margin-bottom: 0; }
+.acc-item .idx {
+  width: 44px; height: 44px; border-radius: var(--r-md); flex-shrink: 0;
+  background: rgba(254, 44, 85, .16); border: 1px solid rgba(254, 44, 85, .35);
+  color: var(--magenta); font-family: var(--mono); font-size: 20px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.acc-item .main { flex: 1; min-width: 0; }
+.acc-item .name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.acc-item .name { font-size: 20px; font-weight: 600; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-item .targets { font-size: 14px; color: var(--t3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-item .targets .n { font-family: var(--mono); color: var(--cyan); }
+.acc-item .side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
+.acc-item .tpl-label {
+  font-size: 12.5px; padding: 3px 12px; border-radius: 999px;
+  background: var(--bg3); color: var(--t2); border: 1px solid var(--line-strong);
+}
+.acc-item .tpl-label.custom { background: rgba(37, 244, 238, .10); color: var(--cyan); border-color: rgba(37, 244, 238, .35); }
+
+/* ============ 结果明细 ============ */
+.res-list { display: flex; flex-direction: column; gap: 10px; }
+.res-item {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 16px 20px;
+}
+.res-item.ok { border-color: rgba(46, 219, 129, .25); }
+.res-item.fail { border-color: rgba(255, 77, 79, .30); background: rgba(255, 77, 79, .05); }
+.res-item .dot-i {
+  width: 10px; height: 10px; border-radius: 50%; margin-top: 10px; flex-shrink: 0;
+}
+.res-item.ok .dot-i { background: var(--ok); box-shadow: 0 0 8px rgba(46, 219, 129, .5); }
+.res-item.fail .dot-i { background: var(--err); box-shadow: 0 0 8px rgba(255, 77, 79, .5); }
+.res-item .body { flex: 1; min-width: 0; }
+.res-item .r-name { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.res-item .r-msg { font-size: 14px; color: var(--t3); margin-top: 4px; word-break: break-all; }
+.res-item .r-count { font-family: var(--mono); font-size: 15px; color: var(--ok); flex-shrink: 0; margin-top: 2px; }
+
+/* ============ 空状态 ============ */
+.empty-state { text-align: center; padding: 56px 24px; }
+.empty-state .ico { width: 76px; height: 76px; margin: 0 auto 20px; opacity: .55; }
+.empty-state .ico svg { width: 100%; height: 100%; }
+.empty-state .h { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
+.empty-state .p { font-size: 15px; color: var(--t3); }
+.empty-state .chips { display: flex; justify-content: center; gap: 10px; margin-top: 22px; }
+.chip {
+  display: inline-flex; align-items: center; font-family: var(--mono);
+  background: var(--bg3); color: var(--t2); font-size: 14px;
+  padding: 6px 16px; border-radius: 999px; border: 1px solid var(--line-strong);
+}
+.chip.cy { color: var(--cyan); border-color: rgba(37, 244, 238, .4); background: rgba(37, 244, 238, .06); }
+
+/* ============ 页脚 ============ */
+.page-foot {
+  text-align: center; font-size: 13px; color: var(--t4);
+  margin-top: 8px; font-family: var(--mono);
+}
+.page-foot .btn-hint { color: var(--cyan-deep); }

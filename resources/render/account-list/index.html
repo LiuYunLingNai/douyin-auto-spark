@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>抖音续火 · 我的账号</title>
+  <link rel="stylesheet" href="{{_res_path}}render/common.css">
+</head>
+<body>
+<div id="container">
+
+  <!-- 页头 -->
+  <header class="page-head">
+    <div class="logo">
+      <svg viewBox="0 0 24 24">
+        <g fill="none" stroke="#25F4EE" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(-0.6,-0.6)">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+        <g fill="none" stroke="#FE2C55" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(0.6,0.6)">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+        <g fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+      </svg>
+    </div>
+    <div class="title-box">
+      <div class="title">我的抖音账号</div>
+      <div class="subtitle">MY SPARK ACCOUNTS</div>
+    </div>
+    <div class="ver-pill">{{count}} 个账号</div>
+  </header>
+
+  {{if hasAccount}}
+
+  <!-- 概览统计 -->
+  <div class="stat-grid g3">
+    <div class="stat-cell"><div class="num c1">{{count}}</div><div class="lab">账号</div></div>
+    <div class="stat-cell"><div class="num c2">{{targetCount}}</div><div class="lab">续火会话</div></div>
+    <div class="stat-cell"><div class="num">{{customTplCount}}</div><div class="lab">自定义模板</div></div>
+  </div>
+
+  <!-- 账号条目 -->
+  {{each accounts acc}}
+  <div class="acc-item">
+    <div class="idx">{{acc.index}}</div>
+    <div class="main">
+      <div class="name-row">
+        <span class="name">{{acc.name}}</span>
+        {{if acc.douyinUid}}<span class="tag tag-cyan">已解析</span>{{/if}}
+      </div>
+      <div class="targets">续火 <span class="n">{{acc.targetCount}}</span> 个会话 · {{acc.targets}}</div>
+    </div>
+    <div class="side">
+      {{if acc.hasTemplate}}<span class="tpl-label custom">自定义模板</span>{{else}}<span class="tpl-label">默认模板</span>{{/if}}
+    </div>
+  </div>
+  {{/each}}
+
+  <div class="page-foot">发送 <span class="btn-hint">#抖音续火 账号名</span> 可单独执行某个账号 · Cookie 仅保存在本地数据库</div>
+
+  {{else}}
+
+  <!-- 空状态 -->
+  <div class="empty-state">
+    <div class="ico">
+      <svg viewBox="0 0 24 24">
+        <g fill="none" stroke="#25F4EE" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" transform="translate(-0.5,-0.5)">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+        <g fill="none" stroke="#FE2C55" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" transform="translate(0.5,0.5)">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+        <path d="M9 18V5l10-2v13" fill="none" stroke="#fff" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+        <path d="M4 4 20 20" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="h">还没有添加账号</div>
+    <div class="p">私聊机器人发送下方指令，打开网页扫码或粘贴 Cookie<br>即可开启每日自动续火</div>
+    <div class="chips">
+      <span class="chip cy">#抖音添加账号</span>
+      <span class="chip">#抖音续火帮助</span>
+    </div>
+  </div>
+
+  {{/if}}
+</div>
+</body>
+</html>

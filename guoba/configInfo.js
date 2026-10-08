@@ -2,6 +2,13 @@ import { getConfig, saveConfig } from '../components/config.js'
 
 const schemas = [
   {
+    field: 'render.enabled',
+    label: '图片卡片输出',
+    bottomHelpMessage: '帮助、账号列表、续火结果渲染为图片卡片并附带快捷按钮；关闭后回退纯文字输出。',
+    component: 'Switch',
+    defaultValue: true,
+  },
+  {
     field: 'schedule.enabled',
     label: '启用定时续火',
     bottomHelpMessage: '关闭后不会按计划自动执行，仍可手动发送 #抖音续火。保存后立即生效。',

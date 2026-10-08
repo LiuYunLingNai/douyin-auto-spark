@@ -20,12 +20,15 @@ import {
 import {
   bindSetupMessage,
   createSetupLink,
+  createAdminLink,
   revokeSetupLinks,
 } from '../components/web-setup.js'
 import { closeBot } from '../components/douyin.js'
+import { buildAccountListData, accountListRows, renderCard } from '../components/render.js'
 
 export const accountHandlers = {
   startAddAccount,
+  manageAccounts,
   cancelAddAccount,
   setupInput,
   setupFile,
@@ -37,6 +40,19 @@ export const accountHandlers = {
   disableSuccessEmail,
   clearEmail,
   showEmail,
+}
+
+async function manageAccounts(e) {
+  if (!e.isMaster) { await e.reply('只有机器人主人可以管理全部账号。'); return true }
+  if (!isPrivate(e)) { await e.reply('请私聊机器人发送 #抖音管理账号。'); return true }
+  try {
+    const { url, expiresMinutes } = createAdminLink({ userId: e.user_id })
+    await e.reply(['所有账号管理链接（' + expiresMinutes + ' 分钟内有效，请勿转发）：', url].join(String.fromCharCode(10)))
+  } catch (error) {
+    logger.error('[抖音续火] 创建管理链接失败', error)
+    await e.reply('创建管理链接失败：' + error.message)
+  }
+  return true
 }
 
 async function startAddAccount(e) {
@@ -124,11 +140,13 @@ async function setupFile(e) {
 
 async function accountList(e) {
   const accounts = await listAccounts(e.user_id)
-  if (accounts.length === 0) {
-    await e.reply('你还没有添加账号，请私聊机器人发送 #抖音添加账号。')
-    return true
-  }
-  await e.reply(`你的抖音账号：\n${accounts.map((account) => `- ${account.name}（${account.targetNames.length} 个会话）`).join('\n')}`)
+  const fallback = accounts.length === 0
+    ? '你还没有添加账号，请私聊机器人发送 #抖音添加账号。'
+    : `你的抖音账号：\n${accounts.map((account) => `- ${account.name}（${account.targetNames.length} 个会话）`).join('\n')}`
+  await renderCard(e, 'account-list', buildAccountListData(accounts), {
+    buttons: accountListRows(accounts),
+    fallback,
+  })
   return true
 }
 

@@ -3,3 +3,4 @@ artifacts/
 config/config.yaml
 data/*.db
 data/*.db-*
+.preview/

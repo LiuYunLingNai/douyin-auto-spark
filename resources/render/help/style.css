@@ -1,0 +1,107 @@
+/* ============================================================
+ * 帮助页 · 布局参考 miao-plugin/apps/help.js（横幅 + 分组卡 + 网格条目）
+ *          视觉全部替换为抖音风格（douyin-ui-spec §1~§4）
+ *          图标为原创内联 SVG，不使用任何外部图片素材
+ * ============================================================ */
+
+/* ---------- 顶部横幅（对应 miao 的 .head-box） ---------- */
+.hero {
+  position: relative;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  padding: 40px 44px;
+  margin-bottom: 28px;
+  background:
+    radial-gradient(ellipse 70% 120% at 92% 20%, rgba(254, 44, 85, .32), transparent 60%),
+    radial-gradient(ellipse 55% 110% at 6% 90%, rgba(37, 244, 238, .22), transparent 60%),
+    linear-gradient(135deg, #232637 0%, #1C1E2C 60%, #161823 100%);
+  border: 1px solid var(--line-strong);
+}
+.hero .hero-inner { display: flex; align-items: center; gap: 22px; position: relative; }
+.hero .logo { width: 64px; height: 64px; flex-shrink: 0; position: relative; }
+.hero .logo svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hero .title {
+  font-size: 46px; font-weight: 800; line-height: 1.15; letter-spacing: 2px;
+  background: linear-gradient(100deg, #FFFFFF 0%, #FFFFFF 45%, var(--cyan-light) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero .label { font-size: 14.5px; color: var(--t3); font-family: var(--mono); margin-top: 8px; letter-spacing: 1px; }
+.hero .ver {
+  margin-left: auto; flex-shrink: 0; align-self: flex-start;
+  font-size: 13px; font-weight: 600; color: var(--magenta);
+  background: rgba(254, 44, 85, .14); border: 1px solid rgba(254, 44, 85, .45);
+  padding: 5px 16px; border-radius: 999px;
+}
+.hero .accent-bar {
+  position: absolute; left: 0; top: 0; width: 100%; height: 4px;
+  background: linear-gradient(90deg, #FE2C55 0%, #B23AF0 55%, #25F4EE 100%);
+}
+
+/* ---------- 概览条 ---------- */
+.hero-stats {
+  display: flex; gap: 14px; margin-top: 28px; position: relative;
+}
+.hero-stats .hs {
+  flex: 1; background: rgba(255, 255, 255, .05); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 14px 18px; display: flex; align-items: center; gap: 14px;
+}
+.hero-stats .hs .n { font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--cyan); }
+.hero-stats .hs .n.mg { color: var(--magenta); }
+.hero-stats .hs .l { font-size: 13.5px; color: var(--t3); }
+
+/* ---------- 分组卡（对应 miao 的 .cont-box） ---------- */
+.cont-box {
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  margin-bottom: 22px;
+  overflow: hidden;
+}
+.help-group {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 26px;
+  background: rgba(255, 255, 255, .04);
+  border-bottom: 1px solid var(--line);
+}
+.help-group .g-ico {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  background: rgba(254, 44, 85, .14); border: 1px solid rgba(254, 44, 85, .35);
+  color: var(--magenta); display: flex; align-items: center; justify-content: center; padding: 5px;
+}
+.help-group .g-ico svg { width: 100%; height: 100%; }
+.help-group .g-name { font-size: 20px; font-weight: 700; }
+.help-group .g-count {
+  margin-left: auto; font-size: 12.5px; color: var(--t4); font-family: var(--mono);
+}
+
+/* ---------- 条目网格（对应 miao 的 .help-table / .tr / .td） ---------- */
+.help-table { display: flex; flex-wrap: wrap; padding: 8px; }
+.help-table .td {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 14px 18px;
+  border-radius: var(--r-md);
+  position: relative;
+}
+.help-table .td:hover { background: rgba(255, 255, 255, .03); }
+.help-icon {
+  width: 40px; height: 40px; flex-shrink: 0; border-radius: 10px;
+  background: rgba(37, 244, 238, .10); border: 1px solid rgba(37, 244, 238, .28);
+  color: var(--cyan); display: flex; align-items: center; justify-content: center; padding: 9px;
+}
+.help-icon svg { width: 100%; height: 100%; }
+.help-icon.master { background: rgba(254, 44, 85, .12); border-color: rgba(254, 44, 85, .32); color: var(--magenta); }
+.help-text { flex: 1; min-width: 0; }
+.help-title {
+  display: block; font-family: var(--mono); font-size: 16px; font-weight: 600;
+  color: var(--t1); line-height: 24px; letter-spacing: .3px;
+}
+.help-desc {
+  display: block; font-size: 13.5px; color: var(--t3); line-height: 20px; margin-top: 3px;
+}
+
+/* ---------- 页脚 ---------- */
+.help-foot {
+  text-align: center; font-size: 13px; color: var(--t4);
+  font-family: var(--mono); margin-top: 4px; line-height: 1.9;
+}
+.help-foot .cy { color: var(--cyan-deep); }

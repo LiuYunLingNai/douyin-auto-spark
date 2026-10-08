@@ -33,6 +33,10 @@ const defaults = {
     recallSetupMessageOnComplete: false,
     setupMessageRecallSeconds: 0,
   },
+  render: {
+    // 关闭后帮助 / 账号列表 / 续火结果回退为纯文字输出
+    enabled: true,
+  },
 }
 
 function merge(base, value) {
