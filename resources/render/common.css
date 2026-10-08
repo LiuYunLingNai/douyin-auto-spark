@@ -175,6 +175,80 @@
 }
 .chip.cy { color: var(--cyan); border-color: rgba(37, 244, 238, .4); background: rgba(37, 244, 238, .06); }
 
+/* ============ 一次性链接卡（setup-link） ============ */
+.link-hero {
+  background: linear-gradient(135deg, rgba(254, 44, 85, .16), rgba(37, 244, 238, .10));
+  border: 1px solid rgba(254, 44, 85, .32);
+  border-radius: var(--r-xl);
+  padding: 28px 32px; margin-bottom: 24px;
+  position: relative; overflow: hidden;
+}
+.link-hero::after {
+  content: ''; position: absolute; right: -60px; top: -60px;
+  width: 200px; height: 200px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(254, 44, 85, .22), transparent 70%);
+}
+.link-hero .lh-top { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.link-hero .lh-ico {
+  width: 42px; height: 42px; flex-shrink: 0; border-radius: var(--r-md);
+  background: rgba(254, 44, 85, .18); border: 1px solid rgba(254, 44, 85, .45);
+  display: flex; align-items: center; justify-content: center; color: var(--magenta);
+}
+.link-hero .lh-ico svg { width: 24px; height: 24px; }
+.link-hero .lh-title { font-size: 26px; font-weight: 700; letter-spacing: .5px; }
+.link-hero .lh-sub { font-size: 14px; color: var(--t3); margin-top: 2px; }
+.link-hero .lh-pill { margin-left: auto; flex-shrink: 0; }
+
+.link-url {
+  background: var(--bg0); border: 1px dashed rgba(37, 244, 238, .45);
+  border-radius: var(--r-md); padding: 16px 20px;
+  font-family: var(--mono); font-size: 16px; line-height: 1.7;
+  color: var(--cyan-light); word-break: break-all;
+}
+.link-url .lu-lab {
+  display: block; font-family: var(--font); font-size: 12.5px;
+  color: var(--t4); letter-spacing: 1px; margin-bottom: 6px;
+}
+
+.link-meta {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  background: var(--line); border: 1px solid var(--line);
+  border-radius: var(--r-md); overflow: hidden; margin-bottom: 24px;
+}
+.link-meta .lm-cell { background: var(--bg1); padding: 16px 12px; text-align: center; }
+.link-meta .lm-val { font-family: var(--mono); font-size: 21px; font-weight: 700; }
+.link-meta .lm-val.c1 { color: var(--magenta); }
+.link-meta .lm-val.c2 { color: var(--cyan); }
+.link-meta .lm-lab { font-size: 12.5px; color: var(--t3); margin-top: 4px; }
+
+/* 步骤条 */
+.step-list { display: flex; flex-direction: column; gap: 12px; }
+.step-item { display: flex; align-items: flex-start; gap: 14px; }
+.step-item .sn {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
+  background: var(--bg3); border: 1px solid var(--line-strong);
+  color: var(--t2); font-family: var(--mono); font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.step-item.on .sn {
+  background: rgba(254, 44, 85, .18); border-color: rgba(254, 44, 85, .5); color: var(--magenta);
+}
+.step-item .st-b { flex: 1; min-width: 0; }
+.step-item .st-t { font-size: 17px; font-weight: 600; }
+.step-item .st-d { font-size: 14px; color: var(--t3); margin-top: 3px; }
+.step-item .st-d .mono { font-family: var(--mono); color: var(--cyan); }
+
+/* 安全提示 */
+.safe-tip {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: rgba(255, 197, 61, .07); border: 1px solid rgba(255, 197, 61, .28);
+  border-radius: var(--r-md); padding: 16px 20px; margin-top: 24px;
+}
+.safe-tip .ico { width: 22px; height: 22px; flex-shrink: 0; color: var(--warn); margin-top: 2px; }
+.safe-tip .ico svg { width: 100%; height: 100%; }
+.safe-tip .txt { flex: 1; font-size: 15px; color: var(--t2); line-height: 1.65; }
+.safe-tip .txt b { color: var(--warn); font-weight: 600; }
+
 /* ============ 页脚 ============ */
 .page-foot {
   text-align: center; font-size: 13px; color: var(--t4);

@@ -173,6 +173,68 @@ export function buildSparkResultData(result = {}, { trigger = '手动执行' } =
   }
 }
 
+/* ---------------- 一次性链接卡（setup-link） ---------------- */
+
+const STEP_TEXT = {
+  add: [
+    { t: '打开上方链接', d: '手机或电脑浏览器均可，建议用手机抖音扫码' },
+    { t: '登录抖音账号', d: '扫码登录，或按页面提示粘贴 Cookie' },
+    { t: '填写会话与消息', d: '选择要续火的好友会话，消息留空则用默认模板' },
+    { t: '保存并完成', d: '回到聊天窗口发送 #抖音续火 即可开始' },
+  ],
+  edit: [
+    { t: '打开上方链接', d: '页面已预填该账号的现有配置' },
+    { t: '更新需要改动的部分', d: 'Cookie 留空则保留原来的登录状态' },
+    { t: '保存并完成', d: '修改立即生效，不影响定时任务' },
+  ],
+  admin: [
+    { t: '打开上方链接', d: '建议使用电脑浏览器，页面为全部账号管理台' },
+    { t: '查看与编辑账号', d: '可修改会话、消息模板，或删除异常账号' },
+    { t: '保存并完成', d: '改动即时写入本地数据库' },
+  ],
+}
+
+/**
+ * 构建一次性链接卡数据
+ * @param {object} opt
+ * @param {'add'|'edit'|'admin'} opt.mode
+ * @param {string} opt.url 完整链接
+ * @param {number} opt.expiresMinutes 有效分钟数
+ * @param {string} [opt.accountName] 修改模式下的账号名
+ */
+export function buildSetupLinkData({ mode = 'add', url = '', expiresMinutes = 10, accountName = '' } = {}) {
+  const minutes = Number(expiresMinutes) || 10
+  const expireAt = new Date(Date.now() + minutes * 60 * 1000)
+  const pad = (value) => String(value).padStart(2, '0')
+  const meta = {
+    add: {
+      modeLabel: '账号配置', title: '添加抖音账号', subTitle: 'ADD SPARK ACCOUNT · ONE-TIME LINK',
+      heroTitle: '扫码或粘贴 Cookie', heroSub: '全程在网页完成，不要把隐私信息发到群里',
+      stepTitle: '添加流程',
+    },
+    edit: {
+      modeLabel: '账号配置', title: '修改抖音账号', subTitle: 'EDIT SPARK ACCOUNT · ONE-TIME LINK',
+      heroTitle: `修改账号「${accountName}」`, heroSub: '页面已预填现有配置，只改需要变动的部分',
+      stepTitle: '修改流程',
+    },
+    admin: {
+      modeLabel: '主人专用', title: '管理全部账号', subTitle: 'ADMIN CONSOLE · ONE-TIME LINK',
+      heroTitle: '全部账号管理台', heroSub: '可查看并修改所有用户的账号，请勿转发',
+      stepTitle: '管理说明',
+    },
+  }[mode] || {}
+
+  return {
+    mode, url, minutes, accountName,
+    expireAt: `${pad(expireAt.getHours())}:${pad(expireAt.getMinutes())}`,
+    isAdd: mode === 'add',
+    isEdit: mode === 'edit',
+    isAdmin: mode === 'admin',
+    steps: (STEP_TEXT[mode] || STEP_TEXT.add).map((step, index) => ({ index: index + 1, ...step })),
+    ...meta,
+  }
+}
+
 /* ---------------- QQBot 按钮编排（douyin-ui-spec §07） ---------------- */
 
 /** 构造单个指令按钮：input + enter:true（callback 通道已受限，不使用） */
@@ -215,6 +277,20 @@ export function accountListRows(accounts = []) {
     rows.push(accounts.slice(0, 4).map((account) => accountBtn(account.name)))
   }
   return rows
+}
+
+/** 链接卡按钮：取消 / 列表 / 立即续火（按场景裁剪） */
+export function setupLinkRows({ mode = 'add' } = {}) {
+  if (mode === 'admin') {
+    return [[
+      btn('账号列表', '#抖音账号列表', { style: 1 }),
+      btn('立即续火', '#抖音续火', { style: 4 }),
+    ]]
+  }
+  return [[
+    btn('取消添加', '#抖音取消添加', { style: 3, clicked_text: '已取消' }),
+    btn('账号列表', '#抖音账号列表', { style: 1 }),
+  ]]
 }
 
 export function sparkResultRows(result = {}) {
@@ -277,4 +353,42 @@ export async function renderCard(e, page, data = {}, { buttons = null, fallback 
 
   if (fallback) await e.reply(fallback)
   return false
+}
+
+/**
+ * 输出一次性链接卡（图片 + 可点击纯文字链接 + 按钮）
+ *
+ * 与 renderCard 的区别：图片里的链接无法点击，因此**始终**在同一条消息里附带纯文字 URL；
+ * 并返回 e.reply 的结果，供 bindSetupMessage 记录 message_id 以便后续撤回。
+ *
+ * @param {object} e Yunzai 事件对象
+ * @param {object} data buildSetupLinkData 的结果
+ * @param {object} [opt]
+ * @param {Array<Array<object>>} [opt.buttons] 按钮行
+ * @returns {Promise<object|null>} e.reply 的返回（含 message_id），失败时为 null
+ */
+export async function renderLinkCard(e, data = {}, { buttons = null } = {}) {
+  const url = data.url || ''
+  const text = `${data.heroTitle ? data.heroTitle + '\n' : ''}请在 ${data.minutes} 分钟内打开链接：\n${url}`
+  const seg = globalThis.segment
+  const rows = buttons?.filter((row) => Array.isArray(row) && row.length).slice(0, 5)
+  const tplPath = 'render/setup-link/index'
+  const saveId = `douyin-spark-link-${Date.now()}`
+
+  if (renderEnabled()) {
+    try {
+      const img = await e.runtime.render(PLUGIN_NAME, tplPath, { saveId, ...data }, { retType: 'base64' })
+      if (img) {
+        const parts = [img, text]
+        if (rows?.length && seg?.button) parts.push(seg.button(...rows))
+        return await e.reply(parts)
+      }
+      logger.warn('[抖音续火] 链接卡渲染返回空结果，回退文字输出')
+    } catch (error) {
+      logger.error('[抖音续火] 链接卡渲染失败，已回退文字输出', error)
+    }
+  }
+
+  // 降级：只发纯文字链接（不拼按钮，避免按钮渲染差异影响可点击性）
+  return await e.reply(text)
 }

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>抖音续火 · 配置链接</title>
+  <link rel="stylesheet" href="{{_res_path}}render/common.css">
+</head>
+<body>
+<div id="container">
+
+  <!-- 页头 -->
+  <header class="page-head">
+    <div class="logo">
+      <svg viewBox="0 0 24 24">
+        <g fill="none" stroke="#25F4EE" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(-0.6,-0.6)">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+        <g fill="none" stroke="#FE2C55" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(0.6,0.6)">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+        <g fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
+        </g>
+      </svg>
+    </div>
+    <div class="title-box">
+      <div class="title">{{title}}</div>
+      <div class="subtitle">{{subTitle}}</div>
+    </div>
+    <div class="ver-pill">{{modeLabel}}</div>
+  </header>
+
+  <!-- 链接主体 -->
+  <div class="link-hero">
+    <div class="lh-top">
+      <div class="lh-ico">
+        {{if isAdmin}}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/></svg>
+        {{else if isEdit}}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18 10a2.8 2.8 0 0 0-4-4L4 16v4z"/></svg>
+        {{else}}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        {{/if}}
+      </div>
+      <div>
+        <div class="lh-title">{{heroTitle}}</div>
+        <div class="lh-sub">{{heroSub}}</div>
+      </div>
+      <div class="lh-pill"><span class="tag tag-warn">{{minutes}} 分钟内有效</span></div>
+    </div>
+
+    <div class="link-url">
+      <span class="lu-lab">一次性配置链接 · 请复制到浏览器打开</span>{{url}}
+    </div>
+  </div>
+
+  <!-- 关键信息 -->
+  <div class="link-meta">
+    <div class="lm-cell"><div class="lm-val c1">{{minutes}}<span style="font-size:14px"> 分钟</span></div><div class="lm-lab">有效期</div></div>
+    <div class="lm-cell"><div class="lm-val c2">{{expireAt}}</div><div class="lm-lab">到期时间</div></div>
+    <div class="lm-cell"><div class="lm-val">1 次</div><div class="lm-lab">可使用次数</div></div>
+  </div>
+
+  <!-- 操作步骤 -->
+  <div class="card">
+    <div class="card-head">
+      <div class="ico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </div>
+      <div class="name">{{stepTitle}}</div>
+      <div class="desc">在网页中完成，无需在群里发送隐私信息</div>
+    </div>
+    <div class="step-list">
+      {{each steps step}}
+      <div class="step-item{{if step.on}} on{{/if}}">
+        <div class="sn">{{step.index}}</div>
+        <div class="st-b">
+          <div class="st-t">{{step.t}}</div>
+          {{if step.d}}<div class="st-d">{{step.d}}</div>{{/if}}
+        </div>
+      </div>
+      {{/each}}
+    </div>
+  </div>
+
+  <!-- 安全提示 -->
+  <div class="safe-tip">
+    <div class="ico">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/></svg>
+    </div>
+    <div class="txt">
+      <b>请勿转发此链接。</b>链接内含一次性凭证，他人打开即可接管你的抖音账号配置；{{if isAdmin}}该链接可查看并修改全部用户的账号，仅限你自己使用。{{else}}Cookie 只会保存在机器人本地数据库，不会上传任何第三方服务器。{{/if}}
+    </div>
+  </div>
+
+  <div class="page-foot">
+    {{if isAdmin}}发送 <span class="btn-hint">#抖音取消添加</span> 可立即作废该管理链接（含全部账号权限）{{else}}链接到期或需要中止时，发送 <span class="btn-hint">#抖音取消添加</span> 立即作废{{/if}}
+  </div>
+</div>
+</body>
+</html>

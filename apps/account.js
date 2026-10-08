@@ -24,7 +24,14 @@ import {
   revokeSetupLinks,
 } from '../components/web-setup.js'
 import { closeBot } from '../components/douyin.js'
-import { buildAccountListData, accountListRows, renderCard } from '../components/render.js'
+import {
+  buildAccountListData,
+  accountListRows,
+  buildSetupLinkData,
+  setupLinkRows,
+  renderCard,
+  renderLinkCard,
+} from '../components/render.js'
 
 export const accountHandlers = {
   startAddAccount,
@@ -47,7 +54,9 @@ async function manageAccounts(e) {
   if (!isPrivate(e)) { await e.reply('请私聊机器人发送 #抖音管理账号。'); return true }
   try {
     const { url, expiresMinutes } = createAdminLink({ userId: e.user_id })
-    await e.reply(['所有账号管理链接（' + expiresMinutes + ' 分钟内有效，请勿转发）：', url].join(String.fromCharCode(10)))
+    await renderLinkCard(e, buildSetupLinkData({ mode: 'admin', url, expiresMinutes }), {
+      buttons: setupLinkRows({ mode: 'admin' }),
+    })
   } catch (error) {
     logger.error('[抖音续火] 创建管理链接失败', error)
     await e.reply('创建管理链接失败：' + error.message)
@@ -59,7 +68,9 @@ async function startAddAccount(e) {
   try {
     await clearSetupSession(e.user_id)
     const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id })
-    const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接添加账号：\n${url}`)
+    const sent = await renderLinkCard(e, buildSetupLinkData({ mode: 'add', url, expiresMinutes }), {
+      buttons: setupLinkRows({ mode: 'add' }),
+    })
     bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
     logger.error('[抖音续火] 创建账号配置链接失败', error)
@@ -172,7 +183,9 @@ async function editAccount(e) {
   }
   try {
     const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id, accountId: account.id })
-    const sent = await e.reply(`请在 ${expiresMinutes} 分钟内打开链接修改账号“${name}”：\n${url}`)
+    const sent = await renderLinkCard(e, buildSetupLinkData({ mode: 'edit', url, expiresMinutes, accountName: name }), {
+      buttons: setupLinkRows({ mode: 'edit' }),
+    })
     bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
     logger.error('[抖音续火] 创建账号修改链接失败', error)
