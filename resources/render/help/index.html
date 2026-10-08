@@ -8,28 +8,32 @@
 <body>
 <div id="container">
 
+  <div class="masthead">
+    <span>Douyin Auto Spark</span>
+    <span class="rg">使用说明 · V{{version}}</span>
+  </div>
+
   <!-- 页头 -->
   <header class="head">
     <div>
-      <div class="eyebrow">Douyin Auto Spark</div>
-      <h1 class="title glit">{{helpCfg.title}}</h1>
+      <div class="eyebrow">Command Reference</div>
+      <h1 class="title">{{helpCfg.title}}</h1>
       <div class="sub">{{helpCfg.subTitle}}</div>
     </div>
-    <div class="ver">V{{version}}</div>
   </header>
 
   <!-- 概览 -->
   <div class="stats">
     <div class="stat"><div class="v co">{{accountCount}}</div><div class="k">我的账号</div></div>
     <div class="stat"><div class="v cc">{{targetCount}}</div><div class="k">续火会话</div></div>
-    <div class="stat"><div class="v" style="font-size:26px;font-family:var(--sans);font-weight:700;line-height:1.9">{{scheduleDesc}}</div><div class="k">定时任务</div></div>
+    <div class="stat"><div class="v" style="font-size:24px;font-family:var(--sans);font-weight:700;line-height:1.9">{{scheduleDesc}}</div><div class="k">定时任务</div></div>
   </div>
 
   <!-- 指令分组 -->
   {{each helpGroup group}}
-  <section class="sec" style="margin-top:{{$index === 0 ? 56 : 48}}px">
+  <section class="sec">
     <div class="sec-h">
-      <span class="bar{{if group.auth === 'master'}} cy{{/if}}"></span>
+      <span class="no">{{$index + 1 < 10 ? '0' : ''}}{{$index + 1}}</span>
       <span class="n">{{group.group}}</span>
       <span class="d">{{group.list.length}} 条{{if group.auth === 'master'}} · 仅主人{{/if}}</span>
     </div>

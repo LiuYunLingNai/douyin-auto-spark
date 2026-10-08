@@ -8,12 +8,17 @@
 <body>
 <div id="container">
 
+  <div class="masthead">
+    <span>Spark Report</span>
+    <span class="rg">{{time}}</span>
+  </div>
+
   <!-- 页头 -->
   <header class="head">
     <div>
-      <div class="eyebrow">Spark Result</div>
-      <h1 class="title glit">{{if failCount}}部分失败{{else}}火花已续上{{/if}}</h1>
-      <div class="sub">{{time}} · {{trigger}}</div>
+      <div class="eyebrow">Execution Result</div>
+      <h1 class="title">{{if failCount}}部分未完成{{else}}火花已续上{{/if}}</h1>
+      <div class="sub">{{trigger}}</div>
     </div>
     {{if failCount}}
     <div class="ver tag err">{{failCount}} 个账号异常</div>
@@ -32,7 +37,7 @@
   {{if okCount}}
   <section class="sec">
     <div class="sec-h">
-      <span class="bar cy"></span>
+      <span class="no">01</span>
       <span class="n">发送成功</span>
       <span class="d"><span class="en">{{okCount}} Accounts</span></span>
     </div>
@@ -47,7 +52,7 @@
   {{if failCount}}
   <section class="sec">
     <div class="sec-h">
-      <span class="bar"></span>
+      <span class="no">{{okCount ? '02' : '01'}}</span>
       <span class="n">需要检查</span>
       <span class="d"><span class="en">{{failCount}} Accounts</span></span>
     </div>

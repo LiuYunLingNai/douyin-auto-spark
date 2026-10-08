@@ -8,14 +8,18 @@
 <body>
 <div id="container">
 
+  <div class="masthead">
+    <span>Spark Accounts</span>
+    <span class="rg">{{count}} 个账号</span>
+  </div>
+
   <!-- 页头 -->
   <header class="head">
     <div>
-      <div class="eyebrow">My Spark Accounts</div>
-      <h1 class="title glit">我的抖音账号</h1>
+      <div class="eyebrow">My Accounts</div>
+      <h1 class="title">我的抖音账号</h1>
       <div class="sub">账号别名、续火会话与消息模板一览</div>
     </div>
-    <div class="ver">{{count}} 个账号</div>
   </header>
 
   {{if hasAccount}}
@@ -30,7 +34,7 @@
   <!-- 账号 -->
   <section class="sec">
     <div class="sec-h">
-      <span class="bar"></span>
+      <span class="no">01</span>
       <span class="n">账号明细</span>
       <span class="d"><span class="en">Send Targets</span></span>
     </div>
@@ -40,7 +44,7 @@
       <div>
         <div class="nm">{{acc.name}}{{if acc.douyinUid}} <span class="tag cyan" style="vertical-align:4px">已解析 UID</span>{{/if}}</div>
         <div class="tg">会话 · {{acc.targets}}</div>
-        <div class="tg" style="margin-top:8px">
+        <div class="tg" style="margin-top:6px">
           {{if acc.hasTemplate}}<span class="tag cyan">自定义模板</span>{{else}}<span class="tag">默认随机一言</span>{{/if}}
         </div>
       </div>
@@ -56,7 +60,7 @@
 
   {{else}}
 
-  <!-- 空状态：左对齐，不居中 -->
+  <!-- 空状态：左对齐 -->
   <div class="empty">
     <div class="h">还没有账号</div>
     <div class="p">私聊机器人发送下方指令，打开一次性网页扫码或粘贴 Cookie，<br>即可开启每天自动续火。</div>

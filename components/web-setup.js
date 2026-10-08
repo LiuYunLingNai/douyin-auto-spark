@@ -6,7 +6,7 @@ import { getConfig } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
 import { toCookieArray, createSdkLog, getBot, hydrateFriendNames, closeBot, toCookieHeader } from './douyin.js'
-import { SETUP_CSS, MESSAGE_CSS, heroHtml, BRAND_LOGO } from './web-theme.js'
+import { SETUP_CSS, MESSAGE_CSS, heroHtml } from './web-theme.js'
 
 const mountedRoutePrefix = '/douyin-auto-spark'
 const standaloneRoutePrefix = '/douyin-auto-spark'
@@ -629,7 +629,7 @@ export function renderSetupPage(token, initial, editing, prefix = webState?.pref
 </head>
 <body>
   <main>
-    ${heroHtml({ title, subTitle: 'DOUYIN AUTO SPARK', badge: editing ? '修改已有账号' : '一次性配置页' })}
+    ${heroHtml({ title, subTitle: editing ? 'Edit Account' : 'Add Account', badge: editing ? '修改已有账号' : '一次性配置页' })}
     <form id="setup-form">
       <label>账号名称<input id="name" maxlength="40" required></label>
       <label>目标会话<textarea id="targetNames" required placeholder="每行一个会话名称，也可粘贴 JSON 数组"></textarea></label>
@@ -928,11 +928,9 @@ export function renderSetupPage(token, initial, editing, prefix = webState?.pref
 }
 
 function renderMessagePage(message) {
-  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#161823"><title>抖音续火</title><style>${MESSAGE_CSS}</style><body>
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#F4F1EA"><title>抖音续火</title><style>${MESSAGE_CSS}</style></head><body>
 <div class="msg-card">
-  ${BRAND_LOGO}
-  <div class="eyebrow">Douyin Auto Spark</div>
-  <h1>${message}</h1>
+  ${heroHtml({ title: message, subTitle: 'One-time Link' })}
   <p>这是一次性配置链接，为保护账号安全会在生成后自动过期。</p>
   <span class="chip">回到机器人私聊重新获取链接</span>
 </div></body></html>`

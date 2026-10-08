@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { getConfig } from './config.js'
-import { ADMIN_CSS, MESSAGE_CSS, heroHtml, BRAND_LOGO } from './web-theme.js'
+import { ADMIN_CSS, MESSAGE_CSS, heroHtml } from './web-theme.js'
 import { listAccountSummaries, deleteAccountById } from './database.js'
 import { closeBot } from './douyin.js'
 
@@ -94,10 +94,10 @@ export async function handleAdminRequest(req, res, pathname, prefix, createEditL
   }
 }
 
-/** 过期 / 参数错误的提示页（与账号配置页同一套抖音视觉） */
+/** 过期 / 参数错误的提示页（与账号配置页同一套纸质视觉） */
 function renderNotice(title, desc) {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#161823"><title>抖音账号管理</title><style>${MESSAGE_CSS}</style></head>
-<body><div class="msg-card">${BRAND_LOGO}<div class="eyebrow">Douyin Auto Spark</div><h1>${title}</h1><p>${desc}</p><span class="chip">回到机器人私聊重新获取</span></div></body></html>`
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#F4F1EA"><title>抖音账号管理</title><style>${MESSAGE_CSS}</style></head>
+<body><div class="msg-card">${heroHtml({ title, subTitle: 'Notice' })}<p>${desc}</p><span class="chip">回到机器人私聊重新获取</span></div></body></html>`
 }
 
 export function renderAdminPage(token, prefix) {
@@ -106,7 +106,7 @@ export function renderAdminPage(token, prefix) {
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#161823"><title>抖音账号管理</title>
 <style>
 ${ADMIN_CSS}
-</style></head><body><main>${heroHtml({ title: '所有抖音账号', subTitle: 'DOUYIN AUTO SPARK · ADMIN', badge: '主人专用' })}<div class="tools"><input id="filter" aria-label="搜索账号" placeholder="按用户 ID、账号名或抖音 UID 搜索"><button id="refresh" type="button">刷新</button><button id="logout" type="button">退出管理</button></div><div class="stats"><div class="stat-cell"><div class="num c1" id="statTotal">0</div><div class="lab">全部账号</div></div><div class="stat-cell"><div class="num c2" id="statCookie">0</div><div class="lab">已存 Cookie</div></div><div class="stat-cell"><div class="num c3" id="statMissing">0</div><div class="lab">缺少 Cookie</div></div></div><div id="status" role="status"></div><div class="table"><table><thead><tr><th>用户 ID</th><th>账号名</th><th>抖音 UID</th><th>目标数</th><th>Cookie</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table></div><div class="pages"><button id="prev" type="button">上一页</button><span id="pageInfo"></span><button id="next" type="button">下一页</button></div><div id="confirmDelete" hidden><p id="deleteText"></p><div class="actions"><button id="deleteYes" class="danger" type="button">确认删除</button><button id="deleteNo" type="button">取消</button></div></div></main>
+</style></head><body><main>${heroHtml({ title: '所有抖音账号', subTitle: 'Admin Console', badge: '主人专用' })}<div class="tools"><input id="filter" aria-label="搜索账号" placeholder="按用户 ID、账号名或抖音 UID 搜索"><button id="refresh" type="button">刷新</button><button id="logout" type="button">退出管理</button></div><div class="stats"><div class="stat-cell"><div class="num c1" id="statTotal">0</div><div class="lab">全部账号</div></div><div class="stat-cell"><div class="num c2" id="statCookie">0</div><div class="lab">已存 Cookie</div></div><div class="stat-cell"><div class="num c3" id="statMissing">0</div><div class="lab">缺少 Cookie</div></div></div><div id="status" role="status"></div><div class="table"><table><thead><tr><th>用户 ID</th><th>账号名</th><th>抖音 UID</th><th>目标数</th><th>Cookie</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table></div><div class="pages"><button id="prev" type="button">上一页</button><span id="pageInfo"></span><button id="next" type="button">下一页</button></div><div id="confirmDelete" hidden><p id="deleteText"></p><div class="actions"><button id="deleteYes" class="danger" type="button">确认删除</button><button id="deleteNo" type="button">取消</button></div></div></main>
 <script>
 const config=${data};
 history.replaceState(null,'',config.prefix+'/admin');
