@@ -1,10 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { login } from 'douyin.ts'
+import { createAdminSession, revokeAdminSessions, handleAdminRequest } from './admin-web.js'
 import { getConfig } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
 import { toCookieArray, createSdkLog, getBot, hydrateFriendNames, closeBot, toCookieHeader } from './douyin.js'
+import { SETUP_CSS, MESSAGE_CSS, heroHtml, BRAND_LOGO } from './web-theme.js'
 
 const mountedRoutePrefix = '/douyin-auto-spark'
 const standaloneRoutePrefix = '/douyin-auto-spark'
@@ -40,6 +42,13 @@ export function createSetupLink({ userId, accountId }) {
     expiresMinutes: minutes,
     url: new URL(`${webState.prefix}/setup/${token}`, getBaseUrl(config)).toString(),
   }
+}
+
+export function createAdminLink({ userId }) {
+  registerSetupRoutes()
+  const baseUrl = getBaseUrl(getConfig())
+  const result = createAdminSession(userId)
+  return { ...result, url: new URL(webState.prefix + '/admin?token=' + result.token, baseUrl).toString() }
 }
 
 export function bindSetupMessage(token, event, messageId) {
@@ -80,6 +89,7 @@ async function recallBoundSetupMessage(session) {
 }
 
 export function revokeSetupLinks(userId) {
+  revokeAdminSessions(userId)
   for (const [token, session] of sessions) {
     if (session.userId === String(userId)) {
       sessions.delete(token)
@@ -124,6 +134,11 @@ function registerMountedRoutes() {
   const app = globalThis.Bot.express
   app.skip_auth.push(webState.prefix)
   app.quiet.push(webState.prefix, '/favicon.ico', '/hybridaction/')
+  app.use(webState.prefix, (req, res, next) => {
+    const pathname = new URL(req.originalUrl, 'http://localhost').pathname
+    handleAdminRequest(req, res, pathname, webState.prefix, createSetupLink, readJsonBody)
+      .then((handled) => { if (!handled) next() }).catch(next)
+  })
   app.get(`${webState.prefix}/setup/:token`, (req, res) => handleSetupPage(req.params.token, res))
   app.post(`${webState.prefix}/api/setup/:token`, (req, res) => handleSetupSubmit(req.params.token, req.body, res))
   app.post(`${webState.prefix}/api/scan/start/:token`, (req, res) => handleScanStart(req.params.token, res))
@@ -150,6 +165,7 @@ function startStandaloneServer() {
 
 async function handleStandaloneRequest(req, res) {
   const url = new URL(req.url || '/', 'http://localhost')
+  if (await handleAdminRequest(req, res, url.pathname, webState.prefix, createSetupLink, readJsonBody)) return
   const page = new RegExp(`^${webState.prefix}/setup/([a-f0-9]{64})$`).exec(url.pathname)
   const api = new RegExp(`^${webState.prefix}/api/setup/([a-f0-9]{64})$`).exec(url.pathname)
   const scanStart = new RegExp(`^${webState.prefix}/api/scan/start/([a-f0-9]{64})$`).exec(url.pathname)
@@ -595,7 +611,7 @@ async function saveWebSetup(session, body) {
   return `${session.accountId === undefined ? '账号已添加' : '账号已更新'}${ignored ? `，已忽略 ${ignored} 条无法使用的 Cookie` : ''}。现在可以关闭此页面。`
 }
 
-function renderSetupPage(token, initial, editing) {
+export function renderSetupPage(token, initial, editing, prefix = webState?.prefix ?? '') {
   const data = JSON.stringify(initial).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
   const title = editing ? '修改抖音账号' : '添加抖音账号'
   return String.raw`<!doctype html>
@@ -604,47 +620,16 @@ function renderSetupPage(token, initial, editing) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#161823">
   <link rel="icon" href="data:,">
   <title>${title}</title>
   <style>
-    :root { color-scheme: light; font-family: "Microsoft YaHei", sans-serif; color: #1d2939; background: #f4f7fb; }
-    body { margin: 0; padding: 32px 16px; }
-    main { width: min(680px, 100%); margin: 0 auto; background: #fff; border: 1px solid #d7dee8; border-radius: 8px; box-shadow: 0 10px 30px #17203314; overflow: hidden; }
-    header { padding: 24px 28px; background: #173b60; color: #fff; }
-    h1 { margin: 0; font-size: 22px; font-weight: 600; }
-    form { padding: 28px; display: grid; gap: 18px; }
-    label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
-    input, textarea { box-sizing: border-box; width: 100%; border: 1px solid #b9c5d3; border-radius: 5px; padding: 10px 12px; font: inherit; color: #172033; background: #fff; }
-    textarea { min-height: 88px; resize: vertical; line-height: 1.5; }
-    input:focus, textarea:focus { outline: 2px solid #4b9edb66; border-color: #247bb7; }
-    .hint { margin: 0; color: #667085; font-size: 12px; font-weight: 400; line-height: 1.5; }
-    .cookie { min-height: 160px; font-family: Consolas, monospace; font-size: 12px; }
-    .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
-    .check input { width: 16px; height: 16px; }
-    button { justify-self: start; border: 0; border-radius: 5px; padding: 11px 20px; background: #1976b7; color: #fff; font: inherit; cursor: pointer; }
-    button:disabled { cursor: wait; opacity: .65; }
-    .scan { display: grid; gap: 8px; padding: 12px; border: 1px solid #d7dee8; border-radius: 5px; background: #f8fafc; }
-    .scan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .scan button { justify-self: start; }
-    .qr { display: none; width: min(360px, 100%); max-height: 360px; object-fit: contain; border: 1px solid #d7dee8; background: #fff; }
-    .sms { display: none; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; }
-    .verify { display: none; color: #1976b7; font-size: 14px; }
-    .sms input { min-width: 0; }
-    .picker { display: grid; gap: 8px; padding: 12px; border: 1px solid #d7dee8; border-radius: 5px; background: #f8fafc; }
-    .picker-list { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
-    .picker-item { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 14px; padding: 4px 2px; }
-    .picker-item input { width: 16px; height: 16px; flex: none; }
-    .picker-item .tag { flex: none; font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #e3ebf3; color: #43566b; }
-    .picker-item .tag.group { background: #e6f0e8; color: #35603f; }
-    .picker-item .tag.nohist { background: #fbeadf; color: #8a4b21; }
-    .picker-empty { color: #667085; font-size: 13px; }
-    #status { margin: 0; min-height: 20px; color: #b42318; font-size: 14px; }
-    #status.ok { color: #087443; }
+    ${SETUP_CSS}
   </style>
 </head>
 <body>
   <main>
-    <header><h1>${title}</h1></header>
+    ${heroHtml({ title, subTitle: 'DOUYIN AUTO SPARK', badge: editing ? '修改已有账号' : '一次性配置页' })}
     <form id="setup-form">
       <label>账号名称<input id="name" maxlength="40" required></label>
       <label>目标会话<textarea id="targetNames" required placeholder="每行一个会话名称，也可粘贴 JSON 数组"></textarea></label>
@@ -762,7 +747,7 @@ function renderSetupPage(token, initial, editing) {
         clearInterval(scanTimer);
         scanTimer = setInterval(async () => {
           try {
-            const result = await (await fetch('${webState.prefix}/api/scan/status/${token}', { cache: 'no-store' })).json();
+            const result = await (await fetch('${prefix}/api/scan/status/${token}', { cache: 'no-store' })).json();
             if (!result.ok) throw new Error(result.message || '读取扫码状态失败');
             if (result.qr && scanQr.dataset.qr !== result.qr) {
               scanQr.dataset.qr = result.qr;
@@ -800,14 +785,14 @@ function renderSetupPage(token, initial, editing) {
         scanRefresh.disabled = false;
       }
     }
-    scanLogin.addEventListener('click', () => requestQr('${webState.prefix}/api/scan/start/${token}', '正在获取登录二维码...'));
-    scanRefresh.addEventListener('click', () => requestQr('${webState.prefix}/api/scan/start/${token}', '正在重新获取二维码...'));
+    scanLogin.addEventListener('click', () => requestQr('${prefix}/api/scan/start/${token}', '正在获取登录二维码...'));
+    scanRefresh.addEventListener('click', () => requestQr('${prefix}/api/scan/start/${token}', '正在重新获取二维码...'));
     mfaSubmit.addEventListener('click', async () => {
       const value = mfaValue.value.trim();
       if (!value) { scanStatus.textContent = '请输入验证码或密码。'; return; }
       mfaSubmit.disabled = true;
       try {
-        const response = await fetch('${webState.prefix}/api/scan/mfa/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
+        const response = await fetch('${prefix}/api/scan/mfa/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
         const data = await response.json();
         if (!data.ok) throw new Error(data.message || '提交二次验证失败');
         mfaVerify.style.display = 'none';
@@ -895,7 +880,7 @@ function renderSetupPage(token, initial, editing) {
       pickerStatus.textContent = '正在连接抖音并读取会话列表…';
       renderPicker([]);
       try {
-        const response = await fetch('${webState.prefix}/api/sessions/${token}', {
+        const response = await fetch('${prefix}/api/sessions/${token}', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cookies: cookieRaw, name: document.querySelector('#name').value.trim() }),
@@ -929,7 +914,7 @@ function renderSetupPage(token, initial, editing) {
       payload.cookieText = document.querySelector('#cookieText').value;
       payload.douyinUid = scanUid;
       try {
-        const response = await fetch('${webState.prefix}/api/setup/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const response = await fetch('${prefix}/api/setup/${token}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await response.json();
         if (!data.ok) throw new Error(data.message || '提交失败');
         status.className = 'ok'; status.textContent = data.message; form.querySelectorAll('input, textarea, button').forEach(item => item.disabled = true);
@@ -943,5 +928,11 @@ function renderSetupPage(token, initial, editing) {
 }
 
 function renderMessagePage(message) {
-  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>抖音续火</title><body><p>${message}</p></body></html>`
+  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#161823"><title>抖音续火</title><style>${MESSAGE_CSS}</style><body>
+<div class="msg-card">
+  ${BRAND_LOGO}
+  <h1>${message}</h1>
+  <p>这是<span style="color:var(--t2)">一次性</span>配置链接，为保护账号安全会在生成后自动过期。</p>
+  <span class="chip">回到机器人私聊重新获取链接</span>
+</div></body></html>`
 }
