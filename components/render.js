@@ -314,6 +314,15 @@ export function renderEnabled() {
 }
 
 /**
+ * 一次性链接是否出图（默认 false —— 直接发纯文字链接）
+ * 图片内的 URL 无法点击，纯文字才能保证手机端可点 / 长按复制。
+ */
+export function linkCardEnabled() {
+  const render = getConfig().render || {}
+  return render.enabled !== false && render.linkCard === true
+}
+
+/**
  * 输出一张规范卡片（带按钮时图 + 按钮合并成一条消息）
  *
  * @param {object} e        Yunzai 事件对象
@@ -369,13 +378,17 @@ export async function renderCard(e, page, data = {}, { buttons = null, fallback 
  */
 export async function renderLinkCard(e, data = {}, { buttons = null } = {}) {
   const url = data.url || ''
-  const text = `${data.heroTitle ? data.heroTitle + '\n' : ''}请在 ${data.minutes} 分钟内打开链接：\n${url}`
+  const action = { add: '添加账号', edit: '修改账号', admin: '管理全部账号' }[data.mode] || '添加账号'
+  const name = data.mode === 'edit' && data.accountName ? `“${data.accountName}”` : ''
+  const text = `请在 ${data.minutes} 分钟内打开链接${action}${name}：\n${url}\n（一次性链接，请勿转发）`
   const seg = globalThis.segment
   const rows = buttons?.filter((row) => Array.isArray(row) && row.length).slice(0, 5)
   const tplPath = 'render/setup-link/index'
   const saveId = `douyin-spark-link-${Date.now()}`
 
-  if (renderEnabled()) {
+  // 链接默认只发纯文字（图片里的链接点不了，且手机端要能长按复制）。
+  // 只有显式开启 render.linkCard 才出图，出图时仍会附带纯文字 URL。
+  if (linkCardEnabled()) {
     try {
       const img = await e.runtime.render(PLUGIN_NAME, tplPath, { saveId, ...data }, { retType: 'base64' })
       if (img) {

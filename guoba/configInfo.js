@@ -9,6 +9,13 @@ const schemas = [
     defaultValue: true,
   },
   {
+    field: 'render.linkCard',
+    label: '链接也出图',
+    bottomHelpMessage: '给添加 / 修改 / 管理账号的一次性链接也渲染图片卡片。默认关闭：只发纯文字链接，手机端可直接点击或长按复制（图片里的链接点不了）。出图时也会附带纯文字链接。',
+    component: 'Switch',
+    defaultValue: false,
+  },
+  {
     field: 'schedule.enabled',
     label: '启用定时续火',
     bottomHelpMessage: '关闭后不会按计划自动执行，仍可手动发送 #抖音续火。保存后立即生效。',
