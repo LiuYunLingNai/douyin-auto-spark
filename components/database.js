@@ -148,6 +148,22 @@ export async function setAccountUid(userId, name, douyinUid) {
   }, true)
 }
 
+/** 管理列表不读取 Cookie 原文。 */
+export async function listAccountSummaries() {
+  return run((database) => rows(database, `SELECT id, user_id, name, douyin_uid, target_names, created_at, CASE WHEN cookies != '[]' AND cookies != '' THEN 1 ELSE 0 END AS has_cookie FROM accounts ORDER BY user_id, id`).map((row) => ({
+    id: Number(row.id), userId: String(row.user_id), name: String(row.name),
+    douyinUid: String(row.douyin_uid || ''), targetCount: parseJson(row.target_names, '目标会话数据').length,
+    createdAt: String(row.created_at), hasCookie: Boolean(row.has_cookie),
+  })))
+}
+
+export async function deleteAccountById(id) {
+  return run((database) => {
+    database.run('DELETE FROM accounts WHERE id = ?', [Number(id)])
+    return database.getRowsModified() > 0
+  }, true)
+}
+
 export async function deleteAccount(userId, name) {
   return run((database) => {
     database.run('DELETE FROM accounts WHERE user_id = ? AND name = ?', [String(userId), name])

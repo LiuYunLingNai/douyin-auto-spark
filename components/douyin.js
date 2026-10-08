@@ -213,7 +213,7 @@ export async function getBot(account, { persistUid } = {}) {
   }
   // SDK 不暴露原始 cookie 串，这里挂一份供资料类接口复用
   bot.cookieString = cookie
-  bots.set(key, { bot, cookie })
+  bots.set(key, { bot, cookie, name: account.name })
   return bot
 }
 
@@ -221,22 +221,25 @@ export async function getBot(account, { persistUid } = {}) {
 export function closeBot(accountId) {
   if (accountId === undefined) return closeAllBots()
   const entry = bots.get(accountId)
-  if (!entry) return false
+  if (!entry) {
+    log('info', `[抖音续火] 账号 ${accountId} 没有缓存连接，无需断开`)
+    return false
+  }
   bots.delete(accountId)
   try {
     entry.bot.stop()
-  } catch {}
-  return true
+    log('info', `[抖音续火] 账号 ${entry.name || accountId} SDK 连接已断开`)
+    return true
+  } catch (error) {
+    log('warn', `[抖音续火] 账号 ${entry.name || accountId} SDK 连接断开失败：${error?.message || error}`)
+    return false
+  }
 }
 
 export function closeAllBots() {
   const count = bots.size
-  for (const [key, entry] of bots) {
-    bots.delete(key)
-    try {
-      entry.bot.stop()
-    } catch {}
-  }
+  for (const [key] of bots) closeBot(key)
+  if (count > 0) log('info', `[抖音续火] 已执行 ${count} 个 SDK 连接的关闭清理`)
   return count
 }
 

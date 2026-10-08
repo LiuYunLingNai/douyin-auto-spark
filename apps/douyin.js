@@ -54,6 +54,7 @@ export class DouyinAutoSpark extends plugin {
       event: 'message',
       priority: -5000,
       rule: [
+        { reg: '^#抖音管理账号$', fnc: 'manageAccounts', permission: 'master' },
         { reg: '^#抖音添加账号$', fnc: 'startAddAccount', permission: 'all' },
         { reg: '^#抖音取消添加$', fnc: 'cancelAddAccount', permission: 'all' },
         { reg: '^#抖音账号列表$', fnc: 'accountList', permission: 'all' },
