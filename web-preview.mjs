@@ -20,7 +20,7 @@ const { MESSAGE_CSS, BRAND_LOGO } = await import('./components/web-theme.js')
 
 // 提示页（链接过期 / 404）：与 admin-web 的 renderNotice 同一结构
 const noticePage = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>抖音续火</title><style>${MESSAGE_CSS}</style></head>
-<body><div class="msg-card">${BRAND_LOGO}<h1>链接无效或已过期，请重新向机器人发送添加或修改命令。</h1><p>这是一次性配置链接，为保护账号安全会在生成后自动过期。</p><span class="chip">回到机器人私聊重新获取链接</span></div></body></html>`
+<body><div class="msg-card">${BRAND_LOGO}<div class="eyebrow">Douyin Auto Spark</div><h1>链接无效或已过期，请重新向机器人发送添加或修改命令。</h1><p>这是一次性配置链接，为保护账号安全会在生成后自动过期。</p><span class="chip">回到机器人私聊重新获取链接</span></div></body></html>`
 
 const initial = {
   name: '我的抖音小号',

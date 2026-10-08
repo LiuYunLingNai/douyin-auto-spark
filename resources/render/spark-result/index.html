@@ -9,70 +9,59 @@
 <div id="container">
 
   <!-- 页头 -->
-  <header class="page-head">
-    <div class="logo">
-      <svg viewBox="0 0 24 24">
-        <g fill="none" stroke="#25F4EE" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(-0.6,-0.6)">
-          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
-        </g>
-        <g fill="none" stroke="#FE2C55" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" transform="translate(0.6,0.6)">
-          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
-        </g>
-        <g fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="16.5" cy="16" r="2.6"/>
-        </g>
-      </svg>
-    </div>
-    <div class="title-box">
-      <div class="title">续火执行结果</div>
-      <div class="subtitle">{{time}} · {{trigger}}</div>
+  <header class="head">
+    <div>
+      <div class="eyebrow">Spark Result</div>
+      <h1 class="title glit">{{if failCount}}部分失败{{else}}火花已续上{{/if}}</h1>
+      <div class="sub">{{time}} · {{trigger}}</div>
     </div>
     {{if failCount}}
-    <span class="status-pill tag tag-err">部分失败</span>
+    <div class="ver tag err">{{failCount}} 个账号异常</div>
     {{else}}
-    <span class="status-pill tag tag-ok">全部成功</span>
+    <div class="ver tag ok">全部成功</div>
     {{/if}}
   </header>
 
-  <!-- 概览统计 -->
-  <div class="stat-grid g3">
-    <div class="stat-cell"><div class="num c1">{{sent}}</div><div class="lab">成功发送 / 条</div></div>
-    <div class="stat-cell"><div class="num c-ok">{{okCount}}</div><div class="lab">成功账号</div></div>
-    <div class="stat-cell"><div class="num {{if failCount}}c-err{{else}}c-ok{{/if}}">{{failCount}}</div><div class="lab">失败账号</div></div>
+  <!-- 概览 -->
+  <div class="stats">
+    <div class="stat"><div class="v co">{{sent}}</div><div class="k">发送条数</div></div>
+    <div class="stat"><div class="v cok">{{okCount}}</div><div class="k">成功账号</div></div>
+    <div class="stat"><div class="v {{if failCount}}cerr{{else}}cok{{/if}}">{{failCount}}</div><div class="k">失败账号</div></div>
   </div>
 
   {{if okCount}}
-  <!-- 成功明细 -->
-  <div class="res-list" style="margin-bottom: 24px;">
+  <section class="sec">
+    <div class="sec-h">
+      <span class="bar cy"></span>
+      <span class="n">发送成功</span>
+      <span class="d"><span class="en">{{okCount}} Accounts</span></span>
+    </div>
     {{each successes item}}
-    <div class="res-item ok">
-      <span class="dot-i"></span>
-      <div class="body">
-        <div class="r-name">{{item.accountName}}</div>
-      </div>
-      <div class="r-count">{{item.sent}} 条</div>
+    <div class="res ok">
+      <div class="rn">{{item.accountName}} <span class="rc">{{item.sent}} 条</span></div>
     </div>
     {{/each}}
-  </div>
+  </section>
   {{/if}}
 
   {{if failCount}}
-  <!-- 失败明细 -->
-  <div class="res-list" style="margin-bottom: 24px;">
+  <section class="sec">
+    <div class="sec-h">
+      <span class="bar"></span>
+      <span class="n">需要检查</span>
+      <span class="d"><span class="en">{{failCount}} Accounts</span></span>
+    </div>
     {{each failures item}}
-    <div class="res-item fail">
-      <span class="dot-i"></span>
-      <div class="body">
-        <div class="r-name">{{item.accountName}}</div>
-        <div class="r-msg">{{item.message}}</div>
-      </div>
+    <div class="res fail">
+      <div class="rn">{{item.accountName}}</div>
+      <div class="rm">{{item.message}}</div>
     </div>
     {{/each}}
-  </div>
+  </section>
   {{/if}}
 
-  <div class="page-foot">
-    {{if failCount}}失败的账号可点击下方按钮单独重试 · 检查 Cookie 与会话名后再次执行{{else}}明天见，火花已续上 🔥{{/if}}
+  <div class="foot">
+    {{if failCount}}失败的账号可点击下方按钮单独重试 · 多为 Cookie 失效或会话名变更导致{{else}}明天同一时间自动执行 · 也可发送 #抖音续火 手动触发{{/if}}
   </div>
 </div>
 </body>

@@ -97,7 +97,7 @@ export async function handleAdminRequest(req, res, pathname, prefix, createEditL
 /** 过期 / 参数错误的提示页（与账号配置页同一套抖音视觉） */
 function renderNotice(title, desc) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#161823"><title>抖音账号管理</title><style>${MESSAGE_CSS}</style></head>
-<body><div class="msg-card">${BRAND_LOGO}<h1>${title}</h1><p>${desc}</p><span class="chip">抖音续火 · AUTO SPARK</span></div></body></html>`
+<body><div class="msg-card">${BRAND_LOGO}<div class="eyebrow">Douyin Auto Spark</div><h1>${title}</h1><p>${desc}</p><span class="chip">回到机器人私聊重新获取</span></div></body></html>`
 }
 
 export function renderAdminPage(token, prefix) {

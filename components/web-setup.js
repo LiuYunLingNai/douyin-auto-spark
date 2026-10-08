@@ -931,8 +931,9 @@ function renderMessagePage(message) {
   return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#161823"><title>抖音续火</title><style>${MESSAGE_CSS}</style><body>
 <div class="msg-card">
   ${BRAND_LOGO}
+  <div class="eyebrow">Douyin Auto Spark</div>
   <h1>${message}</h1>
-  <p>这是<span style="color:var(--t2)">一次性</span>配置链接，为保护账号安全会在生成后自动过期。</p>
+  <p>这是一次性配置链接，为保护账号安全会在生成后自动过期。</p>
   <span class="chip">回到机器人私聊重新获取链接</span>
 </div></body></html>`
 }
