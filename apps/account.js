@@ -27,10 +27,8 @@ import { closeBot } from '../components/douyin.js'
 import {
   buildAccountListData,
   accountListRows,
-  buildSetupLinkData,
-  setupLinkRows,
   renderCard,
-  renderLinkCard,
+  sendSetupLink,
 } from '../components/render.js'
 
 export const accountHandlers = {
@@ -54,9 +52,7 @@ async function manageAccounts(e) {
   if (!isPrivate(e)) { await e.reply('请私聊机器人发送 #抖音管理账号。'); return true }
   try {
     const { url, expiresMinutes } = createAdminLink({ userId: e.user_id })
-    await renderLinkCard(e, buildSetupLinkData({ mode: 'admin', url, expiresMinutes }), {
-      buttons: setupLinkRows({ mode: 'admin' }),
-    })
+    await sendSetupLink(e, { mode: 'admin', url, minutes: expiresMinutes })
   } catch (error) {
     logger.error('[抖音续火] 创建管理链接失败', error)
     await e.reply('创建管理链接失败：' + error.message)
@@ -68,9 +64,7 @@ async function startAddAccount(e) {
   try {
     await clearSetupSession(e.user_id)
     const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id })
-    const sent = await renderLinkCard(e, buildSetupLinkData({ mode: 'add', url, expiresMinutes }), {
-      buttons: setupLinkRows({ mode: 'add' }),
-    })
+    const sent = await sendSetupLink(e, { mode: 'add', url, minutes: expiresMinutes })
     bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
     logger.error('[抖音续火] 创建账号配置链接失败', error)
@@ -183,9 +177,7 @@ async function editAccount(e) {
   }
   try {
     const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id, accountId: account.id })
-    const sent = await renderLinkCard(e, buildSetupLinkData({ mode: 'edit', url, expiresMinutes, accountName: name }), {
-      buttons: setupLinkRows({ mode: 'edit' }),
-    })
+    const sent = await sendSetupLink(e, { mode: 'edit', url, minutes: expiresMinutes, accountName: name })
     bindSetupMessage(token, e, sent?.message_id)
   } catch (error) {
     logger.error('[抖音续火] 创建账号修改链接失败', error)

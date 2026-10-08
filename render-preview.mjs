@@ -17,7 +17,7 @@ const outDir = path.resolve(root, '.preview')
 await fs.mkdir(outDir, { recursive: true })
 
 // 真实走组件的构建函数（帮助页数据来自 config/help.js）
-const { buildHelpData, buildAccountListData, buildSparkResultData, buildSetupLinkData } = await import('./components/render.js')
+const { buildHelpData, buildAccountListData, buildSparkResultData } = await import('./components/render.js')
 
 const helpData = await buildHelpData({
   e: { isMaster: true },
@@ -47,17 +47,12 @@ const resultData = buildSparkResultData({
   failures: [{ accountName: '工作号备用机', message: '以下会话未找到：同事B，请检查会话名和 Cookie' }],
 })
 
-const DEMO_URL = 'http://192.168.1.23:2536/douyin/admin?token=a3f9c2e17b4d8e5f6a1b2c3d4e5f6a7b'
-
 const pages = [
   ['help', helpData],
   ['help-guest', helpDataGuest],
   ['account-list', accountData],
   ['account-list-empty', emptyData],
   ['spark-result', resultData],
-  ['link-add', buildSetupLinkData({ mode: 'add', url: DEMO_URL, expiresMinutes: 10 })],
-  ['link-edit', buildSetupLinkData({ mode: 'edit', url: DEMO_URL, expiresMinutes: 10, accountName: '大号' })],
-  ['link-admin', buildSetupLinkData({ mode: 'admin', url: DEMO_URL, expiresMinutes: 10 })],
 ]
 
 const browser = await puppeteer.launch()
@@ -65,7 +60,7 @@ const page = await browser.newPage()
 await page.setViewport({ width: 900, height: 1200, deviceScaleFactor: 2 })
 
 for (const [name, data] of pages) {
-  const dir = name.startsWith('help') ? 'help' : name.startsWith('link') ? 'setup-link' : name.replace('-empty', '').replace('-guest', '')
+  const dir = name.startsWith('help') ? 'help' : name.replace('-empty', '').replace('-guest', '')
   const tplFile = path.resolve(root, 'resources/render', dir, 'index.html')
   const html = template.render(await fs.readFile(tplFile, 'utf8'), {
     ...data, _res_path: resPath,
