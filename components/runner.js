@@ -6,7 +6,7 @@ import 'dayjs/locale/zh-cn.js'
 import utc from 'dayjs/plugin/utc.js'
 import timezone from 'dayjs/plugin/timezone.js'
 import { getConfig, getPluginRoot } from './config.js'
-import { getUserEmails, getUserNotificationSettings, listAccounts, setAccountUid } from './database.js'
+import { getUserEmails, getUserNotificationSettings, listAccounts, setAccountDevice, setAccountUid } from './database.js'
 import { getBot, buildChatIndex, closeBot } from './douyin.js'
 
 dayjs.extend(utc)
@@ -111,6 +111,8 @@ async function runAccount(account, config, yiyans) {
   // uid 一旦解析出来就落库，后续续火不必再打一次资料接口
   const bot = await getBot(account, {
     persistUid: (uid) => (account.id === undefined ? Promise.resolve() : setAccountUid(account.userId, account.name, uid)),
+    // 首次（或旧设备失效）由 SDK 注册的新设备落库，之后每次续火都复用它
+    persistDevice: (device) => (account.id === undefined ? Promise.resolve() : setAccountDevice(account.userId, account.name, device)),
   })
   const { index, ambiguous } = await buildChatIndex(bot)
 

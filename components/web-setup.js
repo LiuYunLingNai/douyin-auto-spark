@@ -3,9 +3,9 @@ import { createServer } from 'node:http'
 import { login } from 'douyin.ts'
 import { createAdminSession, revokeAdminSessions, handleAdminRequest } from './admin-web.js'
 import { getConfig } from './config.js'
-import { addAccount, getUserNotificationSettings, listAccounts, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
+import { addAccount, getUserNotificationSettings, listAccounts, normalizeDevice, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
-import { toCookieArray, createSdkLog, getBot, hydrateFriendNames, closeBot, toCookieHeader } from './douyin.js'
+import { toCookieArray, createSdkLog, getBot, listFriends, closeBot, toCookieHeader } from './douyin.js'
 import { SETUP_CSS, MESSAGE_CSS, heroHtml } from './web-theme.js'
 
 const mountedRoutePrefix = '/douyin-auto-spark'
@@ -199,7 +199,7 @@ async function handleSetupSubmit(token, body, res) {
   if (session.submitting) return sendJson(res, 409, { ok: false, message: '正在提交，请勿重复操作。' })
   session.submitting = true
   try {
-    const message = await saveWebSetup(session, body)
+    const message = await saveWebSetup(session, body, token)
     if (getConfig().web?.recallSetupMessageOnComplete === true) await recallSetupMessage(token)
     sessions.delete(token)
     clearTimeout(session.expiryTimer)
@@ -232,15 +232,15 @@ async function handleSessionList(token, body, res) {
   const stored = session.accountId === undefined ? undefined : (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
   const scan = scanSessions.get(token)
   const header = toCookieHeader(cookies)
-  const douyinUid = scan?.status === 'success' && header === toCookieHeader(scan.cookies)
-    ? scan.userId
-    : stored && header === toCookieHeader(stored.cookies) ? stored.douyinUid : ''
+  const fromScan = scan?.status === 'success' && header === toCookieHeader(scan.cookies)
+  const fromStored = !fromScan && stored && header === toCookieHeader(stored.cookies)
   const placeholder = {
     id: `setup:${token}`,
     userId: session.userId,
     name: String(body?.name || '').trim() || '当前账号',
     cookies,
-    douyinUid,
+    douyinUid: fromScan ? scan.userId : fromStored ? stored.douyinUid : '',
+    douyinDevice: fromScan ? scan.device : fromStored ? stored.douyinDevice : undefined,
   }
   let bot
   try {
@@ -251,12 +251,10 @@ async function handleSessionList(token, body, res) {
 
   try {
     const self = String(bot.id || '')
-    const [rawFriends, groups] = await Promise.all([
-      bot.frd.list(),
+    const [friends, groups] = await Promise.all([
+      listFriends(bot),
       bot.grp.list(),
     ])
-    // 好友昵称要二次补全：会话列表接口返回的 nickname 恒为空，补全后才能拿到会话名
-    const friends = await hydrateFriendNames(bot, rawFriends)
     const items = []
     const seen = new Set()
     const push = (name, chatId, type, lastMessage, uid) => {
@@ -363,6 +361,8 @@ async function startScanSession(token, { force = false } = {}) {
   const current = scanSessions.get(token)
   if (!force && current && current.status !== 'error') return { status: current.status, qr: current.qr }
 
+  // 修改账号时沿用已存设备登录：同一设备重复登录不易触发二次验证
+  const device = await storedDevice(token)
   closeScanSession(token)
   const scan = {
     token,
@@ -380,6 +380,7 @@ async function startScanSession(token, { force = false } = {}) {
   // login() 是长流程，后台跑；前端靠 /api/scan/status 轮询进度
   scan.promise = login({
     log: createSdkLog('扫码'),
+    device,
     onQr: (qr) => {
       // douyin.ts 透传的是抖音接口原始 qrcode 字段，通常是裸 base64（无 data: 前缀），
       // 直接赋给 img.src 会被当成相对路径而破图，这里统一补齐；若渠道下发的是
@@ -412,6 +413,8 @@ async function startScanSession(token, { force = false } = {}) {
       if (scan.cancelled) return
       scan.cookies = toCookieArray(session.cookie)
       scan.userId = session.userId
+      // 本次登录所用设备；与 Cookie 一同落库，续火时注入免得每次重新注册设备
+      scan.device = normalizeDevice(session.device)
       scan.nickname = session.userData?.screen_name
       scan.status = 'success'
       scan.message = '扫码登录成功，Cookie 已填入下方文本框，请继续提交。'
@@ -429,6 +432,19 @@ async function startScanSession(token, { force = false } = {}) {
   // 于是既不显示二维码也不报错——表现就是「按钮点了没反应」。这里短等一下把首图带上。
   const qr = await waitForQr(scan)
   return { status: scan.status, qr, message: scan.message }
+}
+
+/** 取该配置会话对应账号已存的设备身份（新增账号或查不到时为空，由 SDK 注册新设备） */
+async function storedDevice(token) {
+  const session = getSession(token)
+  if (!session || session.accountId === undefined) return undefined
+  try {
+    const account = (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
+    return normalizeDevice(account?.douyinDevice)
+  } catch (error) {
+    logger.warn(`[抖音续火] 读取已存设备身份失败：${error?.message || error}`)
+    return undefined
+  }
 }
 
 /** 等首张二维码就绪：取到码、出错或超时都立即返回，不阻塞请求线程 */
@@ -566,7 +582,20 @@ async function getInitialValues(session) {
   }
 }
 
-async function saveWebSetup(session, body) {
+/**
+ * 取本次提交的 Cookie 对应的设备身份。
+ *
+ * 设备与扫码会话绑定，故只在提交的 Cookie 与本次扫码所得完全一致时才认；
+ * 用户手工改过 Cookie（或直接粘贴）时返回空，交给 SDK 注册新设备。
+ * 设备身份不下发给前端，避免在网页侧流转。
+ */
+function resolveScanDevice(token, cookies) {
+  const scan = scanSessions.get(token)
+  if (scan?.status !== 'success' || !scan.device || !scan.cookies) return undefined
+  return toCookieHeader(cookies) === toCookieHeader(scan.cookies) ? scan.device : undefined
+}
+
+async function saveWebSetup(session, body, token) {
   if (!body || typeof body !== 'object') throw new Error('提交内容无效')
   const name = String(body.name || '').trim()
   if (!name || name.length > 40) throw new Error('账号名称不能为空且不能超过 40 个字符')
@@ -590,7 +619,15 @@ async function saveWebSetup(session, body) {
     if (!cookieText) throw new Error('请粘贴 Cookie JSON 或选择 .txt 文件')
     const parsed = parseCookies(cookieText)
     ignored = parsed.ignored
-    await addAccount({ userId: session.userId, name, cookies: parsed.cookies, targetNames, messageTemplate, douyinUid: String(body.douyinUid || '') })
+    await addAccount({
+      userId: session.userId,
+      name,
+      cookies: parsed.cookies,
+      targetNames,
+      messageTemplate,
+      douyinUid: String(body.douyinUid || ''),
+      douyinDevice: resolveScanDevice(token, parsed.cookies),
+    })
   } else {
     const account = previousAccount
     const parsed = cookieText ? parseCookies(cookieText) : { cookies: account.cookies, ignored: 0 }
@@ -604,6 +641,8 @@ async function saveWebSetup(session, body) {
       messageTemplate,
       // Cookie 或账号名变化后，旧连接不能继续复用；下次 getBot 会按新 Cookie 重建
       douyinUid: cookieText ? String(body.douyinUid || '') : undefined,
+      // 未改 Cookie 时 douyinUid 为 undefined，设备也一并沿用原值（updateAccount 不动该列）
+      douyinDevice: cookieText ? resolveScanDevice(token, parsed.cookies) : undefined,
     })
   }
   await setUserEmail(session.userId, email)

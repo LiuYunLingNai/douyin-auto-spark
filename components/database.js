@@ -59,6 +59,12 @@ async function getDatabase() {
       if (!accountColumns.some((column) => column.name === 'douyin_uid')) {
         database.run("ALTER TABLE accounts ADD COLUMN douyin_uid TEXT NOT NULL DEFAULT ''")
       }
+      // 桌面设备身份 { guid, deviceId, installId }（douyin.ts 0.6.5+）。
+      // 不落库的话每次 Bot.start() 都会重新 device_register 签发新设备，
+      // 身份不稳定容易触发 MFA；存下来下次直接注入复用。
+      if (!accountColumns.some((column) => column.name === 'douyin_device')) {
+        database.run("ALTER TABLE accounts ADD COLUMN douyin_device TEXT NOT NULL DEFAULT ''")
+      }
       await persist(database)
       return database
     })()
@@ -107,7 +113,35 @@ function toAccount(row) {
     targetNames: parseJson(row.target_names, '目标会话数据'),
     messageTemplate: String(row.message_template || ''),
     douyinUid: String(row.douyin_uid || ''),
+    douyinDevice: normalizeDevice(row.douyin_device),
   }
+}
+
+/**
+ * 设备身份规范化：只认 deviceId 为非零数字串的完整三元组，其余一律视为没有。
+ * 设备只是免注册的优化项，损坏时退回让 SDK 重新注册即可，不必报错。
+ */
+export function normalizeDevice(value) {
+  let device = value
+  if (typeof device === 'string') {
+    if (!device.trim()) return undefined
+    try {
+      device = JSON.parse(device)
+    } catch {
+      return undefined
+    }
+  }
+  if (!device || typeof device !== 'object') return undefined
+  const deviceId = String(device.deviceId ?? '')
+  const installId = String(device.installId ?? '')
+  const guid = String(device.guid ?? '')
+  if (!/^\d+$/.test(deviceId) || deviceId === '0' || !installId || !guid) return undefined
+  return { guid, deviceId, installId }
+}
+
+function serializeDevice(value) {
+  const device = normalizeDevice(value)
+  return device ? JSON.stringify(device) : ''
 }
 
 export async function listAccounts(userId) {
@@ -118,15 +152,15 @@ export async function listAccounts(userId) {
   })
 }
 
-export async function addAccount({ userId, name, cookies, targetNames, messageTemplate, douyinUid = '' }) {
+export async function addAccount({ userId, name, cookies, targetNames, messageTemplate, douyinUid = '', douyinDevice }) {
   return run((database) => {
     const now = new Date().toISOString()
     const normalizedUserId = String(userId)
     database.run('INSERT OR IGNORE INTO users (user_id, created_at) VALUES (?, ?)', [normalizedUserId, now])
     try {
       database.run(
-        'INSERT INTO accounts (user_id, name, cookies, target_names, message_template, douyin_uid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [normalizedUserId, name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, String(douyinUid || ''), now],
+        'INSERT INTO accounts (user_id, name, cookies, target_names, message_template, douyin_uid, douyin_device, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [normalizedUserId, name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, String(douyinUid || ''), serializeDevice(douyinDevice), now],
       )
     } catch (error) {
       if (String(error).includes('UNIQUE constraint failed')) {
@@ -142,6 +176,17 @@ export async function setAccountUid(userId, name, douyinUid) {
   return run((database) => {
     database.run('UPDATE accounts SET douyin_uid = ? WHERE user_id = ? AND name = ?', [
       String(douyinUid || ''),
+      String(userId),
+      name,
+    ])
+  }, true)
+}
+
+/** 记录账号的设备身份（SDK 首次注册新设备后写入，下次启动直接复用） */
+export async function setAccountDevice(userId, name, douyinDevice) {
+  return run((database) => {
+    database.run('UPDATE accounts SET douyin_device = ? WHERE user_id = ? AND name = ?', [
+      serializeDevice(douyinDevice),
       String(userId),
       name,
     ])
@@ -171,7 +216,7 @@ export async function deleteAccount(userId, name) {
   }, true)
 }
 
-export async function updateAccount({ id, userId, name, cookies, targetNames, messageTemplate, douyinUid }) {
+export async function updateAccount({ id, userId, name, cookies, targetNames, messageTemplate, douyinUid, douyinDevice }) {
   return run((database) => {
     try {
       // douyinUid 允许不传：老调用方（如定时任务改目标）不改 Cookie 时不必重解析身份
@@ -181,9 +226,10 @@ export async function updateAccount({ id, userId, name, cookies, targetNames, me
           [name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, Number(id), String(userId)],
         )
       } else {
+        // 换 Cookie 时设备随身份一起换：设备是随扫码会话签发的，粘贴的新 Cookie 不应沿用旧设备
         database.run(
-          'UPDATE accounts SET name = ?, cookies = ?, target_names = ?, message_template = ?, douyin_uid = ? WHERE id = ? AND user_id = ?',
-          [name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, String(douyinUid), Number(id), String(userId)],
+          'UPDATE accounts SET name = ?, cookies = ?, target_names = ?, message_template = ?, douyin_uid = ?, douyin_device = ? WHERE id = ? AND user_id = ?',
+          [name, JSON.stringify(cookies), JSON.stringify(targetNames), messageTemplate, String(douyinUid), serializeDevice(douyinDevice), Number(id), String(userId)],
         )
       }
     } catch (error) {
