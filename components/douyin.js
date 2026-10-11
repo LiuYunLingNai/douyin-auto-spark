@@ -10,11 +10,14 @@
  * 并在构造 Bot 时显式传入（参照 dmmdekkd/karin-plugin-adapter-douyin 的做法：
  * 它也从不依赖自举，而是把 uid 落库后直接交给 IM 客户端）。
  *
- * SDK 版本：**必须 0.6.6 及以上**。
+ * SDK 版本：**必须 0.6.6 及以上**（当前锁定 0.6.7）。
  *   0.6.5 起 `frd.follows/fans/mutual` 整组被删（主站 following/list 换成 spotlight/relation），
  *   好友名单改由 familiar/list 提供；而 0.6.6 内部那条 familiar/list 链路的 version_code
  *   仍是默认的 1.1.34，服务端不认时是静默返回 0 人。所以好友名单统一走
  *   `listFriends()` → `bot.social.familiar()`（它显式设了 version_code=21.6.0）。
+ *
+ *   0.6.7 相对 0.6.6 只改了 IM 发送侧的引用回复（新增 reference/refMsgInfo，
+ *   reply() 由 text 改为 body），好友链路与全部指纹均未变，故本插件无需适配。
  */
 import util from 'node:util'
 import { Bot } from 'douyin.ts'
