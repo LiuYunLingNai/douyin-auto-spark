@@ -255,5 +255,5 @@ async function saveCookies(e, session, cookieText) {
   const { cookies, ignored } = parseCookies(cookieText)
   await saveSetupSession(e.user_id, 'targetNames', { ...session.draft, cookies })
   const skipped = ignored ? `已忽略 ${ignored} 条无法使用的 Cookie。\n` : ''
-  await e.reply(`${skipped}第 3/4 步：请发送目标会话名称。可发送 JSON 数组，例如 ["好友A","好友B"]，也可用逗号分隔。`)
+  await e.reply(`${skipped}第 3/4 步：请发送目标会话名称。可发送 JSON 数组，例如 ["好友A","好友B"]，也可用逗号或换行分隔，建议每行一个。`)
 }

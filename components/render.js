@@ -14,6 +14,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { getConfig } from './config.js'
+import { formatNameList } from './format.js'
 
 const PLUGIN_NAME = 'douyin-auto-spark'
 const COMPONENT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -150,7 +151,7 @@ export function buildAccountListData(accounts = []) {
       index: index + 1,
       name: account.name,
       targetCount: account.targetNames?.length || 0,
-      targets: (account.targetNames || []).join('、') || '未配置会话',
+      targets: account.targetNames?.length ? formatNameList(account.targetNames) : '未配置会话',
       hasTemplate: !!account.messageTemplate,
       douyinUid: !!account.douyinUid,
     })),

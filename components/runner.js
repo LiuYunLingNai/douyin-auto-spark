@@ -8,6 +8,7 @@ import timezone from 'dayjs/plugin/timezone.js'
 import { getConfig, getPluginRoot } from './config.js'
 import { getUserEmails, getUserNotificationSettings, listAccounts, setAccountDevice, setAccountUid } from './database.js'
 import { getBot, buildChatIndex, closeBot } from './douyin.js'
+import { formatNameList, resolveNameTargets } from './format.js'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -122,38 +123,46 @@ async function runAccount(account, config, yiyans) {
   let sent = 0
 
   for (const targetName of account.targetNames) {
-    const chatId = index.get(targetName)
-    if (!chatId) {
+    // 选择对象时可能用顿号连着写了两个好友（「A、B」），整串是匹配不到的；
+    // 这里先按整串精确匹配，匹配不到再按顿号还原成多个会话。
+    const targets = resolveNameTargets(targetName, index)
+    if (targets.length === 0) {
       missing.push(targetName)
       continue
     }
-    // 同名会话（好友与群重名、或多个同名好友）无法区分，提示用户改用更精确的名字
-    if (ambiguous.has(targetName)) ambiguousHits.push(targetName)
-
-    const yiyan = needsYiyan ? pickRandom(yiyans) : undefined
-    const message = account.messageTemplate
-      ? renderTemplate(account.messageTemplate, account.name, targetName, yiyan)
-      : yiyan
-        ? config.message.includeSource !== false
-          ? `${yiyan.hitokoto}\n——「${yiyan.from}」`
-          : yiyan.hitokoto
-        : ''
-    if (!message) {
-      throw new Error(`账号“${account.name}”没有可发送的内容：消息模板为空且未取得一言`)
+    if (targets.length > 1) {
+      logger.warn(`[${account.name}] 目标「${targetName}」未精确匹配，已按顿号识别为 ${formatNameList(targets.map((target) => target.name))}`)
     }
 
-    const result = await bot.msg.send(chatId, { type: 'text', text: message })
-    if (result?.statusCode !== 0) {
-      throw new Error(`向“${targetName}”发送失败：${result?.statusMsg || result?.statusCode}${result?.checkCode ? `（审核码 ${result.checkCode}）` : ''}`)
+    for (const target of targets) {
+      // 同名会话（好友与群重名、或多个同名好友）无法区分，提示用户改用更精确的名字
+      if (ambiguous.has(target.name)) ambiguousHits.push(target.name)
+
+      const yiyan = needsYiyan ? pickRandom(yiyans) : undefined
+      const message = account.messageTemplate
+        ? renderTemplate(account.messageTemplate, account.name, target.name, yiyan)
+        : yiyan
+          ? config.message.includeSource !== false
+            ? `${yiyan.hitokoto}\n——「${yiyan.from}」`
+            : yiyan.hitokoto
+          : ''
+      if (!message) {
+        throw new Error(`账号“${account.name}”没有可发送的内容：消息模板为空且未取得一言`)
+      }
+
+      const result = await bot.msg.send(target.chatId, { type: 'text', text: message })
+      if (result?.statusCode !== 0) {
+        throw new Error(`向“${target.name}”发送失败：${result?.statusMsg || result?.statusCode}${result?.checkCode ? `（审核码 ${result.checkCode}）` : ''}`)
+      }
+      sent += 1
     }
-    sent += 1
   }
 
   if (ambiguousHits.length > 0) {
-    logger.warn(`[${account.name}] 以下会话名存在同名条目，已按首个匹配发送：${[...new Set(ambiguousHits)].join('、')}`)
+    logger.warn(`[${account.name}] 以下会话名存在同名条目，已按首个匹配发送：${formatNameList(ambiguousHits)}`)
   }
   if (missing.length > 0) {
-    throw new Error(`以下会话未找到：${missing.join('、')}，请检查会话名和 Cookie`)
+    throw new Error(`以下会话未找到：${formatNameList(missing)}，请检查会话名和 Cookie`)
   }
   return sent
 }
