@@ -1,22 +1,11 @@
 import {
-  addAccount,
-  clearSetupSession,
   deleteAccount,
-  getSetupSession,
   getUserNotificationSettings,
   listAccounts,
-  saveSetupSession,
   setUserEmail,
   setUserSuccessEmailEnabled,
 } from '../components/database.js'
-import {
-  isPrivate,
-  isValidEmail,
-  parseCookies,
-  parseTargetNames,
-  readCookieTextFile,
-  validateTemplate,
-} from '../components/account-setup.js'
+import { isPrivate, isValidEmail } from '../components/account-setup.js'
 import {
   bindSetupMessage,
   createSetupLink,
@@ -35,8 +24,6 @@ export const accountHandlers = {
   startAddAccount,
   manageAccounts,
   cancelAddAccount,
-  setupInput,
-  setupFile,
   accountList,
   removeAccount,
   editAccount,
@@ -62,7 +49,6 @@ async function manageAccounts(e) {
 
 async function startAddAccount(e) {
   try {
-    await clearSetupSession(e.user_id)
     const { token, url, expiresMinutes } = createSetupLink({ userId: e.user_id })
     const sent = await sendSetupLink(e, { mode: 'add', url, minutes: expiresMinutes })
     bindSetupMessage(token, e, sent?.message_id)
@@ -74,72 +60,8 @@ async function startAddAccount(e) {
 }
 
 async function cancelAddAccount(e) {
-  await clearSetupSession(e.user_id)
   revokeSetupLinks(e.user_id)
   await e.reply('已取消添加账号，网页链接已失效。')
-  return true
-}
-
-async function setupInput(e) {
-  if (!isPrivate(e)) return false
-  const session = await getSetupSession(e.user_id)
-  if (!session) return false
-
-  const input = String(e.msg || '').trim()
-  try {
-    if (session.step === 'name') {
-      if (!input) return false
-      if (input.length > 40) throw new Error('账号名称不能超过 40 个字符')
-      const accounts = await listAccounts(e.user_id)
-      if (accounts.some((account) => account.name === input)) {
-        throw new Error(`已存在名为“${input}”的账号，请换一个名称`)
-      }
-      await saveSetupSession(e.user_id, 'cookie', { name: input })
-      await e.reply('第 2/4 步：请上传包含完整 Cookie JSON 数组的 .txt 文件，也可直接粘贴。')
-    } else if (session.step === 'cookie') {
-      if (!input) {
-        await e.reply('请上传包含完整 Cookie JSON 数组的 .txt 文件，也可直接粘贴。')
-        return true
-      }
-      await saveCookies(e, session, input)
-    } else if (session.step === 'targetNames') {
-      if (!input) return false
-      const targetNames = parseTargetNames(input)
-      await saveSetupSession(e.user_id, 'messageTemplate', { ...session.draft, targetNames })
-      await e.reply('第 4/4 步：发送消息模板；回复“默认”使用全局默认消息。支持 {{friend}}、{{yiyan}} 等占位符。')
-    } else if (session.step === 'messageTemplate') {
-      if (!input) return false
-      const messageTemplate = ['默认', '跳过', '-'].includes(input) ? '' : input
-      validateTemplate(messageTemplate)
-      await addAccount({
-        userId: e.user_id,
-        name: session.draft.name,
-        cookies: session.draft.cookies,
-        targetNames: session.draft.targetNames,
-        messageTemplate,
-      })
-      await clearSetupSession(e.user_id)
-      await e.reply(`账号“${session.draft.name}”已添加。发送 #抖音续火 可执行你的全部账号。`)
-    } else {
-      await clearSetupSession(e.user_id)
-      await e.reply('配置会话已失效，请重新发送 #抖音添加账号。')
-    }
-  } catch (error) {
-    await e.reply(`输入无效：${error.message}\n请重新发送当前步骤内容，或发送 #抖音取消添加。`)
-  }
-  return true
-}
-
-async function setupFile(e) {
-  if (!isPrivate(e) || !e.file) return false
-  const session = await getSetupSession(e.user_id)
-  if (session?.step !== 'cookie') return false
-
-  try {
-    await saveCookies(e, session, await readCookieTextFile(e))
-  } catch (error) {
-    await e.reply(`文件无效：${error.message}\n请重新上传当前步骤的 .txt 文件，或发送 #抖音取消添加。`)
-  }
   return true
 }
 
@@ -249,11 +171,4 @@ async function disableSuccessEmail(e) {
   await setUserSuccessEmailEnabled(e.user_id, false)
   await e.reply('已关闭续火成功邮件通知。')
   return true
-}
-
-async function saveCookies(e, session, cookieText) {
-  const { cookies, ignored } = parseCookies(cookieText)
-  await saveSetupSession(e.user_id, 'targetNames', { ...session.draft, cookies })
-  const skipped = ignored ? `已忽略 ${ignored} 条无法使用的 Cookie。\n` : ''
-  await e.reply(`${skipped}第 3/4 步：请发送目标会话名称。可发送 JSON 数组，例如 ["好友A","好友B"]，也可用逗号或换行分隔，建议每行一个。`)
 }

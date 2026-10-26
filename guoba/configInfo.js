@@ -1,4 +1,5 @@
-import { getConfig, saveConfig } from '../components/config.js'
+import { expandDotPaths, getConfig, saveConfig } from '../components/config.js'
+import { validateTemplate } from '../components/account-setup.js'
 
 const schemas = [
   {
@@ -55,6 +56,13 @@ const schemas = [
     min: 1,
     max: 65535,
     defaultValue: 3065,
+  },
+  {
+    field: 'web.standaloneHost',
+    label: '独立网页监听地址',
+    bottomHelpMessage: '仅在未挂载到 TRSS 时使用，修改后需重启云崽。留空自动判断：网页访问地址为空或是本机地址时只监听 127.0.0.1，否则监听全部网卡。',
+    component: 'Input',
+    placeholder: '留空自动；如 0.0.0.0 或 127.0.0.1',
   },
   {
     field: 'web.baseUrl',
@@ -128,7 +136,7 @@ const schemas = [
     field: 'smtp.password',
     label: 'SMTP 授权码',
     bottomHelpMessage: '填写邮件服务商生成的 SMTP 授权码，不是邮箱登录密码。',
-    component: 'Input',
+    component: 'InputPassword',
   },
   {
     field: 'smtp.from',
@@ -142,6 +150,13 @@ export default {
   schemas,
   getConfigData: () => getConfig(),
   setConfigData(data, { Result }) {
+    // 全局模板写错占位符会让所有未设专属模板的账号续火失败，必须在保存前拦下
+    const template = expandDotPaths(data)?.message?.template
+    try {
+      if (typeof template === 'string') validateTemplate(template)
+    } catch (error) {
+      return Result.error(`默认消息模板${error.message}`)
+    }
     saveConfig(data)
     return Result.ok({}, '保存成功')
   },

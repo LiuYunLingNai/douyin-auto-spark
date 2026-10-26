@@ -261,17 +261,13 @@ export async function renderCard(e, page, data = {}, { buttons = null, fallback 
   const saveId = `douyin-spark-${page}-${Date.now()}`
 
   try {
-    if (rows?.length && seg?.button) {
-      const img = await e.runtime.render(PLUGIN_NAME, tplPath, { saveId, ...data }, { retType: 'base64' })
-      if (img) {
-        await e.reply([img, seg.button(...rows)])
-        return true
-      }
-      logger.warn('[抖音续火] 渲染返回空结果，回退文字输出')
-    } else {
-      await e.runtime.render(PLUGIN_NAME, tplPath, { saveId, ...data })
+    // 统一取 base64 自己发：不传 retType 时 TRSS 截图失败也返回 true，回退文字就永远发不出去
+    const img = await e.runtime.render(PLUGIN_NAME, tplPath, { saveId, ...data }, { retType: 'base64' })
+    if (img) {
+      await e.reply(rows?.length && seg?.button ? [img, seg.button(...rows)] : img)
       return true
     }
+    logger.warn('[抖音续火] 渲染返回空结果，回退文字输出')
   } catch (error) {
     logger.error('[抖音续火] 渲染图片失败，已回退文字输出', error)
   }

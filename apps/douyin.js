@@ -9,28 +9,49 @@ import { registerSetupRoutes } from '../components/web-setup.js'
 let scheduledJob
 let scheduleConfigured = false
 let scheduleTimer
+let setupRoutesError
 
+/** 时区与消息模板里的日期保持一致：服务器不在东八区时，也按北京时间的零点续火 */
+const SCHEDULE_TIMEZONE = 'Asia/Shanghai'
+
+function onConfigChange() {
+  clearTimeout(scheduleTimer)
+  scheduleTimer = setTimeout(refreshScheduledSpark, 150)
+}
+
+/**
+ * 构造函数在每条消息上都会执行，这里不能抛错。
+ * 配置暂时读不了时只记日志；监听装上后，配置修好会自动重建定时任务。
+ */
 function configureScheduledSpark() {
   if (scheduleConfigured) return
-  scheduleConfigured = true
+  try {
+    watchConfig(onConfigChange)
+    scheduleConfigured = true
+  } catch (error) {
+    logger.error('[抖音续火] 配置文件读取失败，暂未创建定时任务', error)
+    return
+  }
   refreshScheduledSpark()
-  watchConfig(() => {
-    clearTimeout(scheduleTimer)
-    scheduleTimer = setTimeout(refreshScheduledSpark, 150)
-  })
 }
 
 function refreshScheduledSpark() {
   scheduledJob?.cancel()
   scheduledJob = undefined
-  const config = getConfig()
+  let config
+  try {
+    config = getConfig()
+  } catch (error) {
+    logger.error('[抖音续火] 配置文件读取失败，未创建定时任务', error)
+    return
+  }
   if (config.schedule.enabled === false) return
   const cron = normalizeCron(config.schedule.cron)
   if (!cron) {
     logger.error('[抖音续火] Cron 表达式格式无效，未创建定时任务')
     return
   }
-  const job = schedule.scheduleJob(cron, scheduledSpark)
+  const job = schedule.scheduleJob({ rule: cron, tz: SCHEDULE_TIMEZONE }, scheduledSpark)
   if (!job) {
     logger.error(`[抖音续火] Cron 表达式无效，未创建定时任务：${cron || '空'}`)
     return
@@ -66,13 +87,19 @@ export class DouyinAutoSpark extends plugin {
         { reg: '^#抖音清除邮箱$', fnc: 'clearEmail', permission: 'all' },
         { reg: '^#抖音邮箱$', fnc: 'showEmail', permission: 'all' },
         { reg: '^#(?:抖音)?续火(?:\\s*(?:帮助|.+))?$', fnc: 'spark', permission: 'all' },
-        { event: 'message.private', reg: '.*', fnc: 'setupFile', permission: 'all', log: false },
-        { reg: '^(?!#)[\\s\\S]+$', fnc: 'setupInput', permission: 'all', log: false },
       ],
       task: [],
     })
     configureScheduledSpark()
-    registerSetupRoutes()
+    try {
+      registerSetupRoutes()
+    } catch (error) {
+      // 同一原因只记一次，避免每条消息刷屏；用户发命令时会拿到具体报错
+      if (setupRoutesError !== error.message) {
+        setupRoutesError = error.message
+        logger.error('[抖音续火] 网页服务注册失败', error)
+      }
+    }
   }
 }
 

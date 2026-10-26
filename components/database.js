@@ -20,7 +20,12 @@ async function getDatabase() {
         throw error
       })
       const database = bytes ? new SQL.Database(bytes) : new SQL.Database()
-      database.run('PRAGMA foreign_keys = ON')
+      try {
+        database.run('PRAGMA foreign_keys = ON')
+      } catch (error) {
+        // 不能静默新建空库：那样下次写盘会把损坏但可能还能抢救的原文件覆盖掉
+        throw new Error(`数据库文件 ${databaseFile} 无法读取（${error.message}），请从备份恢复或手动移走后重启`, { cause: error })
+      }
       database.run(`
         CREATE TABLE IF NOT EXISTS users (
           user_id TEXT PRIMARY KEY,
@@ -38,12 +43,6 @@ async function getDatabase() {
           created_at TEXT NOT NULL,
           UNIQUE(user_id, name),
           FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS setup_sessions (
-          user_id TEXT PRIMARY KEY,
-          step TEXT NOT NULL,
-          draft TEXT NOT NULL,
-          updated_at TEXT NOT NULL
         );
       `)
       const userColumns = rows(database, 'PRAGMA table_info(users)')
@@ -68,12 +67,27 @@ async function getDatabase() {
       await persist(database)
       return database
     })()
+    // 初始化失败不缓存，修好文件后下一次调用可以重试
+    databasePromise.catch(() => { databasePromise = undefined })
   }
   return databasePromise
 }
 
+/**
+ * 整库导出后先写临时文件再改名：直接覆盖时进程崩溃会留下半截文件，丢掉全部账号。
+ * Windows 上目标文件被杀软等占用时 rename 可能失败，此时退回直接覆盖。
+ */
 async function persist(database) {
-  await fs.writeFile(databaseFile, database.export())
+  const bytes = database.export()
+  const temporaryFile = `${databaseFile}.tmp`
+  await fs.writeFile(temporaryFile, bytes)
+  try {
+    await fs.rename(temporaryFile, databaseFile)
+  } catch (error) {
+    if (!['EPERM', 'EBUSY', 'EACCES'].includes(error.code)) throw error
+    await fs.writeFile(databaseFile, bytes)
+    await fs.rm(temporaryFile, { force: true })
+  }
 }
 
 function run(operation, writes = false) {
@@ -104,16 +118,32 @@ function parseJson(value, description) {
   }
 }
 
+/**
+ * 单行数据损坏时不抛错：否则一个坏账号会让列表、续火对所有用户一起失败。
+ * 损坏信息放进 invalid，由续火流程把该账号记为失败，其余账号照常执行。
+ */
 function toAccount(row) {
+  const problems = []
+  const read = (value, description, fallback) => {
+    try {
+      return parseJson(value, description)
+    } catch (error) {
+      problems.push(error.message)
+      return fallback
+    }
+  }
+  const cookies = read(row.cookies, 'Cookie 数据', [])
+  const targetNames = read(row.target_names, '目标会话数据', [])
   return {
     id: Number(row.id),
     userId: String(row.user_id),
     name: String(row.name),
-    cookies: parseJson(row.cookies, 'Cookie 数据'),
-    targetNames: parseJson(row.target_names, '目标会话数据'),
+    cookies: Array.isArray(cookies) ? cookies : [],
+    targetNames: Array.isArray(targetNames) ? targetNames : [],
     messageTemplate: String(row.message_template || ''),
     douyinUid: String(row.douyin_uid || ''),
     douyinDevice: normalizeDevice(row.douyin_device),
+    ...(problems.length ? { invalid: problems.join('；') } : {}),
   }
 }
 
@@ -171,35 +201,34 @@ export async function addAccount({ userId, name, cookies, targetNames, messageTe
   }, true)
 }
 
-/** 记录账号的抖音数字 uid（扫码登录成功后写入） */
-export async function setAccountUid(userId, name, douyinUid) {
+/** 记录账号的抖音数字 uid。按 id 定位：续火途中账号被改名也不会写丢 */
+export async function setAccountUid(id, douyinUid) {
   return run((database) => {
-    database.run('UPDATE accounts SET douyin_uid = ? WHERE user_id = ? AND name = ?', [
-      String(douyinUid || ''),
-      String(userId),
-      name,
-    ])
+    database.run('UPDATE accounts SET douyin_uid = ? WHERE id = ?', [String(douyinUid || ''), Number(id)])
   }, true)
 }
 
 /** 记录账号的设备身份（SDK 首次注册新设备后写入，下次启动直接复用） */
-export async function setAccountDevice(userId, name, douyinDevice) {
+export async function setAccountDevice(id, douyinDevice) {
   return run((database) => {
-    database.run('UPDATE accounts SET douyin_device = ? WHERE user_id = ? AND name = ?', [
-      serializeDevice(douyinDevice),
-      String(userId),
-      name,
-    ])
+    database.run('UPDATE accounts SET douyin_device = ? WHERE id = ?', [serializeDevice(douyinDevice), Number(id)])
   }, true)
 }
 
 /** 管理列表不读取 Cookie 原文。 */
 export async function listAccountSummaries() {
-  return run((database) => rows(database, `SELECT id, user_id, name, douyin_uid, target_names, created_at, CASE WHEN cookies != '[]' AND cookies != '' THEN 1 ELSE 0 END AS has_cookie FROM accounts ORDER BY user_id, id`).map((row) => ({
-    id: Number(row.id), userId: String(row.user_id), name: String(row.name),
-    douyinUid: String(row.douyin_uid || ''), targetCount: parseJson(row.target_names, '目标会话数据').length,
-    createdAt: String(row.created_at), hasCookie: Boolean(row.has_cookie),
-  })))
+  return run((database) => rows(database, `SELECT id, user_id, name, douyin_uid, target_names, created_at, CASE WHEN cookies != '[]' AND cookies != '' THEN 1 ELSE 0 END AS has_cookie FROM accounts ORDER BY user_id, id`).map((row) => {
+    let targetCount = 0
+    try {
+      const targetNames = JSON.parse(row.target_names)
+      targetCount = Array.isArray(targetNames) ? targetNames.length : 0
+    } catch {}
+    return {
+      id: Number(row.id), userId: String(row.user_id), name: String(row.name),
+      douyinUid: String(row.douyin_uid || ''), targetCount,
+      createdAt: String(row.created_at), hasCookie: Boolean(row.has_cookie),
+    }
+  }))
 }
 
 export async function deleteAccountById(id) {
@@ -291,28 +320,4 @@ export async function getUserNotificationSettings(userIds) {
     }
     return result
   })
-}
-
-export async function getSetupSession(userId) {
-  return run((database) => {
-    const [session] = rows(database, 'SELECT * FROM setup_sessions WHERE user_id = ?', [String(userId)])
-    if (!session) return undefined
-    return { step: String(session.step), draft: parseJson(session.draft, '配置会话数据') }
-  })
-}
-
-export async function saveSetupSession(userId, step, draft) {
-  return run((database) => {
-    database.run(
-      `INSERT INTO setup_sessions (user_id, step, draft, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET step = excluded.step, draft = excluded.draft, updated_at = excluded.updated_at`,
-      [String(userId), step, JSON.stringify(draft), new Date().toISOString()],
-    )
-  }, true)
-}
-
-export async function clearSetupSession(userId) {
-  return run((database) => {
-    database.run('DELETE FROM setup_sessions WHERE user_id = ?', [String(userId)])
-  }, true)
 }

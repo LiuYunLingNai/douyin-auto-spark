@@ -9,6 +9,7 @@ const configFile = path.join(pluginRoot, 'config', 'config.yaml')
 const configListeners = new Set()
 let configWatcher
 let changeTimer
+let cachedConfig
 
 const defaults = {
   schedule: { enabled: true, cron: '0 10 0 * * *' },
@@ -28,6 +29,7 @@ const defaults = {
   web: {
     mountToTrss: true,
     standalonePort: 3065,
+    standaloneHost: '',
     baseUrl: '',
     linkExpiresMinutes: 10,
     recallSetupMessageOnComplete: false,
@@ -74,9 +76,21 @@ function expandDotPaths(value) {
   return result
 }
 
-export function getConfig() {
+function loadConfig() {
   ensureConfigFile()
   return merge(merge(defaults, readYaml(defaultFile)), readYaml(configFile))
+}
+
+/**
+ * 调用点很多（每条消息都会走到），所以缓存解析结果，文件变化时才重读。
+ * 返回副本，调用方改动不会污染缓存。
+ * 监听不可用时退回每次读取，保证不会拿着旧配置不放。
+ */
+export function getConfig() {
+  if (!cachedConfig || !ensureWatcher()) {
+    cachedConfig = loadConfig()
+  }
+  return structuredClone(cachedConfig)
 }
 
 export function getPluginRoot() {
@@ -86,14 +100,33 @@ export function getPluginRoot() {
 export function watchConfig(listener) {
   ensureConfigFile()
   configListeners.add(listener)
-  if (!configWatcher) {
-    configWatcher = fs.watch(configFile, { persistent: false }, () => {
+  ensureWatcher()
+  return () => configListeners.delete(listener)
+}
+
+/**
+ * 监听目录而不是文件：编辑器「写临时文件再改名」式保存会让文件句柄失效，
+ * 直接监听文件会从此收不到变化。
+ */
+function ensureWatcher() {
+  if (configWatcher) return true
+  try {
+    configWatcher = fs.watch(path.dirname(configFile), { persistent: false }, (_event, filename) => {
+      if (filename && filename !== path.basename(configFile)) return
       clearTimeout(changeTimer)
       changeTimer = setTimeout(notifyConfigChange, 150)
     })
-    configWatcher.on('error', (error) => logger.error('[抖音续火] 配置文件监听失败', error))
+  } catch (error) {
+    logger.error('[抖音续火] 配置文件监听失败，改为每次读取', error)
+    return false
   }
-  return () => configListeners.delete(listener)
+  configWatcher.on('error', (error) => {
+    logger.error('[抖音续火] 配置文件监听失败，改为每次读取', error)
+    configWatcher?.close()
+    configWatcher = undefined
+    cachedConfig = undefined
+  })
+  return true
 }
 
 export function saveConfig(value) {
@@ -105,7 +138,11 @@ export function saveConfig(value) {
 
   updateYamlMap(document, [], expandDotPaths(value))
   fs.writeFileSync(configFile, document.toString(), 'utf8')
+  // 直接通知，不等文件监听：中间若有 getConfig 先刷新了缓存，监听回调会以为没有变化
+  notifyConfigChange()
 }
+
+export { expandDotPaths }
 
 function ensureConfigFile() {
   fs.mkdirSync(path.dirname(configFile), { recursive: true })
@@ -207,12 +244,18 @@ function hasDotPaths(value) {
 }
 
 function notifyConfigChange() {
+  let next
   try {
-    getConfig()
+    next = loadConfig()
   } catch (error) {
-    logger.error('[抖音续火] 配置文件读取失败，已保留当前定时任务', error)
+    // 改坏的配置不替换缓存：插件继续按上一份可用配置运行
+    logger.error('[抖音续火] 配置文件读取失败，继续使用上一份有效配置', error)
     return
   }
+  const changed = !cachedConfig || JSON.stringify(next) !== JSON.stringify(cachedConfig)
+  cachedConfig = next
+  // ensureConfigFile 回写注释、或保存内容没变时也会触发监听，此时无需重排定时任务
+  if (!changed) return
   for (const listener of configListeners) {
     try {
       listener()

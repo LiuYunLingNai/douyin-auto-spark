@@ -1,6 +1,7 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import { update as Update } from '../../other/update.js'
 import { closeAllBots } from '../components/douyin.js'
+import { isSparkRunning } from '../components/runner.js'
 
 const PLUGIN_NAME = 'douyin-auto-spark'
 
@@ -33,6 +34,8 @@ export class DouyinAutoSparkUpdate extends plugin {
 
   async update(e = this.e) {
     if (!e?.isMaster) return this.reply('只有主人可以更新抖音续火插件')
+    // 更新前要断开全部连接，续火途中断开会让剩下的会话发送失败
+    if (isSparkRunning()) return this.reply('续火正在执行，请等本轮结束后再更新')
     e.msg = `#${e.msg?.includes('强制') ? '强制' : ''}更新${PLUGIN_NAME}`
     const updater = new Update(e)
     updater.e = e

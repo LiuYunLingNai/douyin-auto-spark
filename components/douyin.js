@@ -30,6 +30,9 @@ const ATTRIBUTE_FIELDS = new Set(['path', 'domain', 'expires', 'max-age', 'secur
 /** accountId → { bot, cookie }；Cookie 更新后不能复用旧长连接 */
 const bots = new Map()
 
+/** accountId → 正在进行的 getBot Promise，用来把同一账号的并发启动串起来 */
+const pendingBots = new Map()
+
 /**
  * 云崽 logger → SDK Log 接口的桥。
  * 云崽 logger 是 (...args) 变参且 Error 对象不打印堆栈，故 Error 走 util.inspect。
@@ -225,7 +228,20 @@ const FAMILIAR_MAX_PAGES = 30
  * 设备身份：有已存设备就注入（SDK 跳过 device_register）；没有则由 SDK 注册新设备，
  * start 成功后经 persistDevice 回写，下次续火沿用同一设备，避免频繁换设备触发 MFA。
  */
-export async function getBot(account, { persistUid, persistDevice } = {}) {
+export function getBot(account, options) {
+  // 同一账号的并发调用排队执行：否则两边各建一个实例，后写入的覆盖缓存，
+  // 先建的那条长连接没人持有，也永远不会被 stop
+  const key = account.id === undefined ? account.name : account.id
+  const previous = pendingBots.get(key) ?? Promise.resolve()
+  const task = previous.catch(() => {}).then(() => startBot(account, options))
+  pendingBots.set(key, task)
+  task.finally(() => {
+    if (pendingBots.get(key) === task) pendingBots.delete(key)
+  }).catch(() => {})
+  return task
+}
+
+async function startBot(account, { persistUid, persistDevice } = {}) {
   const key = account.id === undefined ? account.name : account.id
   const cookie = toCookieHeader(account.cookies)
   if (!cookie) throw new Error(`账号“${account.name}”没有可用的 Cookie，请重新扫码或粘贴`)

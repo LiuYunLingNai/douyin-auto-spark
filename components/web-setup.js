@@ -12,6 +12,7 @@ const mountedRoutePrefix = '/douyin-auto-spark'
 const standaloneRoutePrefix = '/douyin-auto-spark'
 const sessions = new Map()
 const scanSessions = new Map()
+const SCAN_RESTART_INTERVAL_MS = 5000
 let routesRegistered = false
 let webState
 let standaloneServer
@@ -115,18 +116,48 @@ function getBaseUrl(config) {
     : `http://127.0.0.1:${webState.port}`
   const value = String(config.web?.baseUrl || fallback || '').trim()
   if (!value) throw new Error('请先在插件配置中填写 web.baseUrl')
+  let url
   try {
-    return new URL(value.endsWith('/') ? value : `${value}/`)
+    url = new URL(value.endsWith('/') ? value : `${value}/`)
   } catch {
     throw new Error('web.baseUrl 不是有效的网址')
   }
+  warnPlainHttp(url)
+  return url
+}
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+let plainHttpWarned = ''
+
+/** 配置页会提交 Cookie、短信验证码甚至抖音密码，非本机的 http 地址上这些都是明文 */
+function warnPlainHttp(url) {
+  if (url.protocol !== 'http:' || LOOPBACK_HOSTS.has(url.hostname) || plainHttpWarned === url.origin) return
+  plainHttpWarned = url.origin
+  logger.warn(`[抖音续火] 网页链接使用明文 HTTP（${url.origin}）：Cookie、验证码和密码会以明文传输，公网或不可信网络请改用 HTTPS 反向代理`)
 }
 
 function getWebState(config) {
   const mode = config.web?.mountToTrss === false ? 'standalone' : 'mounted'
   const port = Number(config.web?.standalonePort) || 3065
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('web.standalonePort 必须是 1 到 65535 之间的端口')
-  return { mode, port, prefix: mode === 'mounted' ? mountedRoutePrefix : standaloneRoutePrefix }
+  return { mode, port, host: getStandaloneHost(config), prefix: mode === 'mounted' ? mountedRoutePrefix : standaloneRoutePrefix }
+}
+
+/**
+ * 独立服务的监听地址。显式配置优先；否则按 baseUrl 推断：
+ * 没填或填的是本机地址时只监听 127.0.0.1，不把配置页暴露给局域网；
+ * 填了其它地址说明要从别的设备访问，才监听全部网卡。
+ */
+function getStandaloneHost(config) {
+  const configured = String(config.web?.standaloneHost || '').trim()
+  if (configured) return configured
+  const baseUrl = String(config.web?.baseUrl || '').trim()
+  if (!baseUrl) return '127.0.0.1'
+  try {
+    return LOOPBACK_HOSTS.has(new URL(baseUrl).hostname) ? '127.0.0.1' : undefined
+  } catch {
+    return '127.0.0.1'
+  }
 }
 
 function registerMountedRoutes() {
@@ -158,9 +189,10 @@ function startStandaloneServer() {
     standaloneError = error
     logger.error('[抖音续火] 独立网页服务启动失败', error)
   })
-  standaloneServer.listen(webState.port)
+  standaloneServer.listen(webState.port, webState.host, () => {
+    logger.mark(`[抖音续火] 独立网页服务已启动，监听 ${webState.host || '全部网卡'}:${webState.port}`)
+  })
   standaloneServer.unref()
-  logger.mark(`[抖音续火] 独立网页服务已启动，端口 ${webState.port}`)
 }
 
 async function handleStandaloneRequest(req, res) {
@@ -228,7 +260,17 @@ async function handleSessionList(token, body, res) {
     return sendJson(res, 400, { ok: false, message: error.message })
   }
   if (!cookies.length) return sendJson(res, 400, { ok: false, message: '请先扫码获取 Cookie 或粘贴 Cookie JSON。' })
+  // 同一链接同时只读一次：并发读取共用同一个连接键，先结束的一方会关掉另一方正在用的连接
+  if (session.loadingSessions) return sendJson(res, 409, { ok: false, message: '正在读取会话列表，请稍候。' })
+  session.loadingSessions = true
+  try {
+    return await loadSessionList(token, session, body, cookies, res)
+  } finally {
+    session.loadingSessions = false
+  }
+}
 
+async function loadSessionList(token, session, body, cookies, res) {
   const stored = session.accountId === undefined ? undefined : (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
   const scan = scanSessions.get(token)
   const header = toCookieHeader(cookies)
@@ -301,6 +343,12 @@ async function resolveSubmittedCookies(session, body) {
 async function handleScanStart(token, res) {
   const session = getSession(token)
   if (!session) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
+  // login() 无法中断，旧轮询会在后台跑满约 120 秒；限制频率，避免连点堆出一串并发轮询
+  const now = Date.now()
+  if (session.scanStartedAt && now - session.scanStartedAt < SCAN_RESTART_INTERVAL_MS) {
+    return sendJson(res, 429, { ok: false, message: '操作太频繁，请几秒后再获取二维码。' })
+  }
+  session.scanStartedAt = now
   try {
     const result = await startScanSession(token, { force: true })
     sendJson(res, 200, { ok: true, ...result })

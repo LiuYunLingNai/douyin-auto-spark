@@ -16,21 +16,6 @@ export function parseCookies(input) {
   return { cookies, ignored: values.length - cookies.length }
 }
 
-export async function readCookieTextFile(e) {
-  const file = e.file
-  const name = String(file?.name || file?.filename || '')
-  if (!/\.txt$/i.test(name)) throw new Error('仅支持 .txt 文件')
-  if (Number(file?.size) > 1024 * 1024) throw new Error('文件不能超过 1 MB')
-
-  const fileId = file?.file_id || file?.id || file?.fid
-  const url = file?.url || (fileId && await e.friend?.getFileUrl?.(fileId))
-  if (!url) throw new Error('无法获取文件下载地址，请重新上传')
-
-  const uploaded = await Bot.fileType({ name, file: url })
-  if (!Buffer.isBuffer(uploaded.buffer)) throw new Error('读取文件失败，请重新上传')
-  return uploaded.buffer.toString('utf8').replace(/^\uFEFF/, '').trim()
-}
-
 export function parseTargetNames(input) {
   let values
   if (input.startsWith('[')) {

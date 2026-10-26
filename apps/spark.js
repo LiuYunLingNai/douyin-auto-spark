@@ -1,4 +1,4 @@
-import { runSpark } from '../components/runner.js'
+import { isSparkRunning, runSpark } from '../components/runner.js'
 import { getConfig } from '../components/config.js'
 import { listAccounts } from '../components/database.js'
 import Version from '../components/Version.js'
@@ -78,12 +78,16 @@ async function spark(e) {
     return true
   }
 
+  if (isSparkRunning()) {
+    await e.reply('上一轮续火还在执行，请稍后再试。')
+    return true
+  }
   await e.reply('正在启动抖音续火，请稍候...')
   try {
     const result = await runSpark(allUsers ? {} : { userId: e.user_id, accountName: argument || undefined })
     await replySparkResult(e, result)
   } catch (error) {
-    logger.error('[抖音续火]', error)
+    if (error.code !== 'BUSY' && error.code !== 'NO_ACCOUNTS') logger.error('[抖音续火]', error)
     if (error.result) {
       await replySparkResult(e, error.result)
     } else {
@@ -96,15 +100,31 @@ async function spark(e) {
 async function scheduledSpark() {
   let result
   try {
-    result = await runSpark()
+    // 手动续火还没跑完时排队等它，而不是跳过当天的定时任务
+    result = await runSpark({ wait: true })
     logger.mark(`[抖音续火] 定时任务完成，发送 ${result.sent} 条消息`)
   } catch (error) {
+    if (error.code === 'NO_ACCOUNTS') {
+      logger.mark('[抖音续火] 定时任务跳过：尚无账号')
+      return
+    }
     logger.error('[抖音续火] 定时任务失败', error)
     result = error.result
+    // 没有逐账号结果说明整轮没跑起来，至少让主人知道
+    if (!result) await notifyMasters(`抖音自动续火未能执行：${error.message}`)
   }
   if (result) {
     await sendScheduledResults(result)
     await sendScheduledSummaryToMasters(result)
+  }
+}
+
+async function notifyMasters(text) {
+  if (typeof globalThis.Bot?.sendMasterMsg !== 'function') return
+  try {
+    await globalThis.Bot.sendMasterMsg(text, undefined, 0)
+  } catch (error) {
+    logger.warn('[抖音续火] 向主人发送通知失败', error)
   }
 }
 
@@ -123,9 +143,9 @@ async function sendScheduledResults({ successes = [], failures = [] }) {
 
   for (const [userId, userResults] of resultsByUser) {
     const lines = ['抖音自动续火结果']
+    const sent = [...userResults.successes, ...userResults.failures].reduce((total, item) => total + (item.sent || 0), 0)
+    if (sent) lines.push(`成功发送：${sent} 条`)
     if (userResults.successes.length) {
-      const sent = userResults.successes.reduce((total, item) => total + item.sent, 0)
-      lines.push(`成功发送：${sent} 条`)
       lines.push(...userResults.successes.map((item) => `成功：${item.accountName}（${item.sent} 条）`))
     }
     if (userResults.failures.length) {
@@ -147,7 +167,6 @@ function normalizeUserId(userId) {
 }
 
 async function sendScheduledSummaryToMasters({ sent = 0, successes = [], failures = [] }) {
-  if (typeof globalThis.Bot?.sendMasterMsg !== 'function') return
   const lines = [
     '抖音自动续火汇总',
     `总发送：${sent} 条`,
@@ -162,9 +181,5 @@ async function sendScheduledSummaryToMasters({ sent = 0, successes = [], failure
     lines.push('失败明细：')
     lines.push(...failures.map((item) => `- [${item.userId}] ${item.accountName}：${item.message}`))
   }
-  try {
-    await globalThis.Bot.sendMasterMsg(lines.join('\n'), undefined, 0)
-  } catch (error) {
-    logger.warn('[抖音续火] 向主人发送定时汇总失败', error)
-  }
+  await notifyMasters(lines.join('\n'))
 }
