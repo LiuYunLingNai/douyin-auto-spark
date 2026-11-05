@@ -7,7 +7,7 @@ import utc from 'dayjs/plugin/utc.js'
 import timezone from 'dayjs/plugin/timezone.js'
 import { getConfig, getPluginRoot } from './config.js'
 import { getUserEmails, getUserNotificationSettings, listAccounts, setAccountDevice, setAccountUid } from './database.js'
-import { getBot, buildChatIndex, closeBot } from './douyin.js'
+import { getBot, buildChatIndex, closeBot, formatSdkError } from './douyin.js'
 import { formatNameList, resolveNameTargets } from './format.js'
 
 dayjs.extend(utc)
@@ -326,4 +326,7 @@ async function loadYiyans() {
 }
 
 function pickRandom(values) { return values[Math.floor(Math.random() * values.length)] }
-function toError(error) { return error instanceof Error ? error : new Error(String(error)) }
+function toError(error) {
+  const message = formatSdkError(error)
+  return error instanceof Error && error.message === message ? error : new Error(message, { cause: error })
+}

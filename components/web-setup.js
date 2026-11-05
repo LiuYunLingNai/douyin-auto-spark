@@ -5,7 +5,7 @@ import { createAdminSession, revokeAdminSessions, handleAdminRequest } from './a
 import { getConfig } from './config.js'
 import { addAccount, getUserNotificationSettings, listAccounts, normalizeDevice, setUserEmail, setUserSuccessEmailEnabled, updateAccount } from './database.js'
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
-import { toCookieArray, createSdkLog, getBot, listFriends, closeBot, toCookieHeader } from './douyin.js'
+import { toCookieArray, createSdkLog, getBot, listFriends, closeBot, toCookieHeader, formatSdkError } from './douyin.js'
 import { SETUP_CSS, MESSAGE_CSS, heroHtml } from './web-theme.js'
 
 const mountedRoutePrefix = '/douyin-auto-spark'
@@ -313,7 +313,7 @@ async function loadSessionList(token, session, body, cookies, res) {
     return sendJson(res, 200, { ok: true, items })
   } catch (error) {
     logger.error('[抖音续火] 拉取会话列表失败', error)
-    return sendJson(res, 400, { ok: false, message: `拉取会话列表失败：${error?.message || error}` })
+    return sendJson(res, 400, { ok: false, message: `拉取会话列表失败：${formatSdkError(error)}` })
   } finally {
     closeBot(placeholder.id)
   }
@@ -354,7 +354,7 @@ async function handleScanStart(token, res) {
     sendJson(res, 200, { ok: true, ...result })
   } catch (error) {
     logger.error('[抖音续火] 启动扫码登录失败', error)
-    sendJson(res, 400, { ok: false, message: error.message || '启动扫码登录失败。' })
+    sendJson(res, 400, { ok: false, message: formatSdkError(error) })
   }
 }
 
@@ -470,7 +470,7 @@ async function startScanSession(token, { force = false } = {}) {
     .catch((error) => {
       if (scan.cancelled) return
       scan.status = 'error'
-      scan.error = error?.message || '扫码登录失败。'
+      scan.error = formatSdkError(error)
       // 取码阶段就失败时唤醒等待者，避免请求一直挂到超时才报错
       notifyQr(scan)
     })

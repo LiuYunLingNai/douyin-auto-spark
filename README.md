@@ -13,6 +13,10 @@ pnpm install
 
 所有依赖（含 `douyin.ts` 和平台原生绑定）会在上述安装命令执行时从 npm 安装到 `plugins/douyin-auto-spark/node_modules`，无需下载浏览器或额外构建。
 
+当前锁定 `douyin.ts 0.6.9`（[SDK 上游](https://github.com/CialloJS/douyin.ts)）。更新插件后请在 Yunzai 根目录执行 `pnpm install`，并重启云崽以加载新版 SDK。
+
+SDK 的接口与行为约定见[官方文档](https://ciallojs.github.io/douyin.ts/)。消息返回 `statusCode=0` 时计为已提交；审核码 `10502` 表示审核中，对方可能延迟可见。
+
 建议使用 Node.js 24.12 或更新的受支持版本，安装依赖时请保留可选依赖，以便安装 SDK 所需的平台原生绑定。
 
 首次启动会自动创建 `plugins/douyin-auto-spark/config/config.yaml`，可在 Guoba 或该文件配置默认消息、定时任务和 SMTP。

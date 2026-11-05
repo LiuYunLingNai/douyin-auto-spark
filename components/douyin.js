@@ -10,17 +10,17 @@
  * 并在构造 Bot 时显式传入（参照 dmmdekkd/karin-plugin-adapter-douyin 的做法：
  * 它也从不依赖自举，而是把 uid 落库后直接交给 IM 客户端）。
  *
- * SDK 版本：**必须 0.6.6 及以上**（当前锁定 0.6.7）。
+ * SDK 版本：当前锁定 0.6.9，昵称补全使用公开的 `bot.user.info()`。
  *   0.6.5 起 `frd.follows/fans/mutual` 整组被删（主站 following/list 换成 spotlight/relation），
- *   好友名单改由 familiar/list 提供；而 0.6.6 内部那条 familiar/list 链路的 version_code
- *   仍是默认的 1.1.34，服务端不认时是静默返回 0 人。所以好友名单统一走
+ *   好友名单改由 familiar/list 提供；frd.list() 内部那条链路使用默认桌面 version_code
+ *   （0.6.6 为 1.1.34，0.6.9 为 1.2.1），服务端不认时静默返回 0 人。好友名单统一走
  *   `listFriends()` → `bot.social.familiar()`（它显式设了 version_code=21.6.0）。
  *
- *   0.6.7 相对 0.6.6 只改了 IM 发送侧的引用回复（新增 reference/refMsgInfo，
- *   reply() 由 text 改为 body），好友链路与全部指纹均未变，故本插件无需适配。
+ *   0.6.9 移除了 `bot.im()`，资料接口统一走 `bot.user.info()`；
+ *   SDK 失败改抛 SdkError（message 固定为 sdk），实际原因需从 data 提取。
  */
 import util from 'node:util'
-import { Bot } from 'douyin.ts'
+import { Bot, chatIdOf, isErr } from 'douyin.ts'
 import { getConfig } from './config.js'
 import { normalizeDevice } from './database.js'
 
@@ -45,6 +45,31 @@ export function createSdkLog(tag) {
     warn: (msg) => log('warn', `${prefix} ${stringify(msg)}`),
     error: (msg) => log('error', `${prefix} ${stringify(msg)}`),
   }
+}
+
+/** SdkError.message 固定为 sdk；只提取错误文案和状态码，避免把响应内的登录凭据展示给用户。 */
+export function formatSdkError(error) {
+  if (!isErr(error)) return error?.message || String(error)
+  const data = error.data
+  if (data instanceof Error) return formatSdkError(data)
+  if (data?.fatal === true) return '抖音访问过于频繁，请稍后重新登录'
+  if (data?.status === 'expired') return '二维码已过期，请重新获取二维码'
+  if (data?.timeout) return '抖音验证超时，请重新登录并完成扫码或安全验证'
+  if (data?.started === false) return '抖音连接尚未启动'
+  if (data && typeof data === 'object' && 'chatId' in data) return '抖音会话标识不完整，请重新获取会话列表'
+  const sources = [data?.data, data?.body?.sendMessage, data].filter((item) => item && typeof item === 'object')
+  const pick = (keys) => {
+    for (const source of sources) {
+      for (const key of keys) {
+        const value = source[key]
+        if ((typeof value === 'string' && value.trim()) || typeof value === 'number') return value
+      }
+    }
+  }
+  const message = pick(['description', 'status_msg', 'statusMsg', 'errorDesc', 'error_msg', 'error_description', 'message', 'msg', 'status_message'])
+  const code = pick(['error_code', 'errorCode', 'status_code', 'statusCode', 'status'])
+  const checkCode = pick(['checkCode', 'check_code'])
+  return `${message || '抖音 SDK 请求失败'}${code !== undefined ? `（状态码 ${code}）` : ''}${checkCode ? `（审核码 ${checkCode}）` : ''}`
 }
 
 /**
@@ -186,11 +211,12 @@ export async function hydrateFriendNames(bot, friends) {
   if (pending.length === 0) return friends
   let profiles
   try {
-    profiles = await bot.im().getUserProfiles(pending)
+    const users = await bot.user.info(pending)
+    profiles = new Map(users.map((user) => [user.secUid, user]))
   } catch (error) {
-    // 这条链路走 www-hj 主站域，桌面会话可能被拒（实测 code=8）。
+    // 资料接口可能因会话或风控被拒，不能让昵称补全拖垮整个名单。
     // 昵称缺失只影响可读性，不能让整个好友名单跟着失败。
-    log('warn', `[抖音续火] 补全 ${pending.length} 个好友昵称失败（${error?.message || error}），保留接口返回的原昵称`)
+    log('warn', `[抖音续火] 补全 ${pending.length} 个好友昵称失败（${formatSdkError(error)}），保留接口返回的原昵称`)
     return friends
   }
   return friends.map((friend) => {
@@ -263,7 +289,7 @@ async function startBot(account, { persistUid, persistDevice } = {}) {
       bot.stop()
     } catch {}
     bots.delete(key)
-    throw new Error(`账号“${account.name}”连接抖音失败：${error?.message || error}`)
+    throw new Error(`账号“${account.name}”连接抖音失败：${formatSdkError(error)}`, { cause: error })
   }
   const device = normalizeDevice(bot.device)
   if (device && device.deviceId !== savedDevice?.deviceId && typeof persistDevice === 'function') {
@@ -291,7 +317,7 @@ export function closeBot(accountId) {
     log('info', `[抖音续火] 账号 ${entry.name || accountId} SDK 连接已断开`)
     return true
   } catch (error) {
-    log('warn', `[抖音续火] 账号 ${entry.name || accountId} SDK 连接断开失败：${error?.message || error}`)
+    log('warn', `[抖音续火] 账号 ${entry.name || accountId} SDK 连接断开失败：${formatSdkError(error)}`)
     return false
   }
 }
@@ -322,21 +348,22 @@ function p2pConversationId(myUid, peerUid) {
  *
  * chatId 有两个来源：
  *   1. 条目自带真实会话（`bot.frd.list()` 会把 cmd=203 的会话按 uid 交叉匹配进来，
- *      于是 conversationId 非空）—— 直接用真会话拼，发出去落进已有会话。
- *      注意不能直接信 SDK 给的 chatId：chatIdOf() 拼的是
+ *      于是 conversationId 非空）—— 保留 SDK 的 chatId，缺省时用 chatIdOf() 转换。
+ *      无会话时不能直接信 SDK 给的 chatId：chatIdOf() 拼的是
  *      `1:${conversationShortId}:${conversationId}`，会话缺失时 shortId 是空串，
  *      SDK 自己会拼出 `1::` 这种非法串，toAddress() 直接抛「非法 chatId」。
  *   2. 没有会话记录（`bot.social.familiar()` 只给 uid/secUid/nickname）——
- *      按双方 uid 推导 conversationId，SDK 的 send 允许 shortId 为 0。
+ *      按双方 uid 推导 conversationId，再交给 chatIdOf() 转换。0.6.9 的发送解析
+ *      允许 shortId 为 0；推导规则是插件兼容逻辑，不是 SDK 承诺的稳定格式。
  */
 function attachChatId(friend, myUid) {
   if (friend.conversationId) {
-    const chatId = `1:${friend.conversationShortId || '0'}:${friend.conversationId}`
+    const chatId = friend.chatId || chatIdOf({ ...friend, conversationType: 1, conversationShortId: friend.conversationShortId || '0' })
     return { ...friend, chatId }
   }
   const derived = p2pConversationId(myUid, friend.uid)
   if (!derived) return undefined
-  return { ...friend, conversationId: derived, conversationShortId: '0', chatId: `1:0:${derived}` }
+  return { ...friend, conversationId: derived, conversationShortId: '0', chatId: chatIdOf({ conversationType: 1, conversationShortId: '0', conversationId: derived }) }
 }
 
 /**
@@ -346,7 +373,7 @@ function attachChatId(friend, myUid) {
  * `version_code=21.6.0`，并按 cursor 翻页。
  *
  * **不要直接用 `bot.frd.list()` 当好友来源**（0.6.6 实测）：它的好友名单同样来自
- * `familiar/list`，但内部 `fetchFamiliarRows()` 走的是默认指纹 `version_code=1.1.34`，
+ * `familiar/list`，但内部 `fetchFamiliarRows()` 走的是默认桌面指纹（0.6.9 为 1.2.1），
  * 且服务端非 0 时是 `break` 而不是抛错——于是静默返回 0 个好友，调用方完全看不出原因。
  * 这正是 0.6.5 起「互关好友恒为 0 人」的根因。
  *
@@ -373,7 +400,8 @@ export async function listFriends(bot) {
         {
           uid,
           ...(row.secUid ? { secUid: row.secUid } : {}),
-          nickname: String(row.nickname ?? ''),
+          nickname: String(row.raw?.remark_name || row.nickname || ''),
+          ...(row.conversationId ? { conversationId: row.conversationId, ...(row.chatId ? { chatId: row.chatId } : {}) } : {}),
           ...(row.conversationShortId ? { conversationShortId: row.conversationShortId } : {}),
           lastMessageTime: Number(row.lastMessageTime ?? 0),
           unreadCount: Number(row.unreadCount ?? 0),
@@ -396,7 +424,7 @@ export async function listFriends(bot) {
       cursor += FAMILIAR_PAGE_SIZE
     }
   } catch (error) {
-    log('warn', `[抖音续火] social.familiar() 拉取好友名单失败（${error?.message || error}），回退 frd.list()`)
+    log('warn', `[抖音续火] social.familiar() 拉取好友名单失败（${formatSdkError(error)}），回退 frd.list()`)
   }
 
   // 兜底：frd.list() 自带 cursor 翻页，但可能因 version_code 静默返回空
@@ -409,19 +437,19 @@ export async function listFriends(bot) {
         log('warn', '[抖音续火] social.familiar() 无数据，已回退 frd.list()')
       }
     } catch (error) {
-      log('warn', `[抖音续火] frd.list() 拉取好友名单也失败（${error?.message || error}）`)
+      log('warn', `[抖音续火] frd.list() 拉取好友名单也失败（${formatSdkError(error)}）`)
     }
   }
 
   const friends = await hydrateFriendNames(bot, collected)
-  // 好友总数是「0.6.6 适配是否生效」最直接的可观测点。
+  // 好友总数用于确认 familiar/list 链路是否正常。
   if (friends.length === 0) {
-    log('warn', '[抖音续火] 好友名单为空：familiar/list 可能被服务端拒绝、无好友，或实际加载的仍是 0.6.4（该版本没有 bot.social）')
+    log('warn', '[抖音续火] 好友名单为空：familiar/list 可能被服务端拒绝、无好友，请确认 douyin.ts 已安装到 0.6.9')
   } else {
     log('info', `[抖音续火] 好友名单 ${friends.length} 个`)
   }
   if (usedFallback) {
-    log('warn', '[抖音续火] 当前名单来自 frd.list()：新版 SDK 该路径会静默返回 0 人或只给最近会话，请确认 douyin.ts 已装到 0.6.6')
+    log('warn', '[抖音续火] 当前名单来自 frd.list()：该路径可能静默返回空或不完整名单，请检查 familiar/list 接口状态')
   }
   return friends
 }
