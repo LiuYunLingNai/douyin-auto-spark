@@ -343,7 +343,7 @@ async function resolveSubmittedCookies(session, body) {
 async function handleScanStart(token, res) {
   const session = getSession(token)
   if (!session) return sendJson(res, 404, { ok: false, message: '链接无效或已过期，请重新发送命令。' })
-  // login() 无法中断，旧轮询会在后台跑满约 120 秒；限制频率，避免连点堆出一串并发轮询
+  // login() 无法中断，频控退避和验证会延长轮询；限制频率，避免连点堆积并发登录
   const now = Date.now()
   if (session.scanStartedAt && now - session.scanStartedAt < SCAN_RESTART_INTERVAL_MS) {
     return sendJson(res, 429, { ok: false, message: '操作太频繁，请几秒后再获取二维码。' })
@@ -543,7 +543,7 @@ function statusText(status) {
 }
 
 /**
- * 结束扫码会话。login() 没有中断接口，其轮询最长可持续 120s，因此这里不能 await
+ * 结束扫码会话。login() 没有中断接口，验证与退避会延长轮询，因此这里不能 await
  * 它的 promise——否则请求处理会被挂住。只标记 cancelled 让它后续结果被忽略，
  * 并让等待输入的二次验证 Promise 立刻失败，避免悬挂。
  */
@@ -622,7 +622,7 @@ async function getInitialValues(session) {
   if (!account) throw new Error('账号不存在')
   return {
     name: account.name,
-    targetNames: account.targetNames.join('\n'),
+    targetNames: JSON.stringify(account.targetNames, null, 2),
     messageTemplate: account.messageTemplate,
     email,
     successEmailEnabled,
@@ -720,6 +720,7 @@ export function renderSetupPage(token, initial, editing, prefix = webState?.pref
     <form id="setup-form">
       <label>账号名称<input id="name" maxlength="40" required></label>
       <label>目标会话<textarea id="targetNames" required placeholder="每行一个会话名称，也可粘贴 JSON 数组"></textarea></label>
+      <span class="hint">每行一个会话名；名字中的逗号、顿号会完整保留。也可通过下方列表勾选。</span>
       <div class="picker">
         <div class="scan-actions">
           <button id="loadSessions" type="button">从抖音读取好友/群列表</button>
@@ -895,11 +896,13 @@ export function renderSetupPage(token, initial, editing, prefix = webState?.pref
     // ---- 会话选择器 ----
     // 勾选结果直接写回「目标会话」文本框，保持文本框为唯一数据源，
     // 用户仍可手工增删，提交逻辑无需改动。
+    const parseTargets = ${parseTargetNames.toString()};
     function currentTargets() {
-      return targetNames.value.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+      try { return parseTargets(targetNames.value); } catch { return []; }
     }
     function writeTargets(list) {
-      targetNames.value = [...new Set(list)].join('\n');
+      const names = [...new Set(list)];
+      targetNames.value = JSON.stringify(names, null, 2);
       clearTargets.disabled = currentTargets().length === 0;
     }
     let pickerItems = [];

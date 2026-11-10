@@ -13,7 +13,7 @@ pnpm install
 
 所有依赖（含 `douyin.ts` 和平台原生绑定）会在上述安装命令执行时从 npm 安装到 `plugins/douyin-auto-spark/node_modules`，无需下载浏览器或额外构建。
 
-当前锁定 `douyin.ts 0.6.9`（[SDK 上游](https://github.com/CialloJS/douyin.ts)）。更新插件后请在 Yunzai 根目录执行 `pnpm install`，并重启云崽以加载新版 SDK。
+当前锁定 `douyin.ts 0.6.10`（[SDK 上游](https://github.com/CialloJS/douyin.ts)）。更新插件后请在 Yunzai 根目录执行 `pnpm install`，并重启云崽以加载新版 SDK。0.6.10 优化了登录轮询、二次验证签名重放和频控退避重试。
 
 SDK 的接口与行为约定见[官方文档](https://ciallojs.github.io/douyin.ts/)。消息返回 `statusCode=0` 时计为已提交；审核码 `10502` 表示审核中，对方可能延迟可见。
 
@@ -27,7 +27,7 @@ SDK 的接口与行为约定见[官方文档](https://ciallojs.github.io/douyin.
 
 1. 本账号的别名。
 2. 点击“扫码获取 Cookie”，插件会通过协议向抖音请求登录二维码并显示在页面上，用抖音 App 扫码；登录成功后 Cookie 会自动填入。若抖音要求二次验证，页面会出现验证码输入框（短信验证码）或跳转链接（去抖音 App 内完成确认），按其提示操作即可。二维码有有效期，过期或长时间未刷新时点击“重新获取二维码”。若扫描流程被风控拦截，可改用 Cookie-Editor 导出的完整 Cookie JSON 数组，直接粘贴或选择 `.txt` 文件。
-3. 需要续火的会话名，可逐行输入或粘贴 JSON 数组。
+3. 需要续火的会话名，每行输入一个完整名称，或粘贴 JSON 数组；逗号和顿号可以属于名字，不会在保存时拆分。通过列表勾选时会自动保存为 JSON 数组。
 4. 自定义消息模板和失败通知收件邮箱。
 
 链接默认 10 分钟有效，提交成功后即失效。发送 `#抖音修改账号 账号名` 可修改会话、模板和邮箱；Cookie 留空会保留原值，重新粘贴或上传 `.txt` 可更新过期 Cookie。流程中可随时发送 `#抖音取消添加` 使链接失效。

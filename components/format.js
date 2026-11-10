@@ -23,11 +23,10 @@ export function formatNameList(names = []) {
 }
 
 /**
- * 判断一个未命中的目标名是不是「几个会话名被顿号连成了一个」。
+ * 判断一个未命中的目标名是不是「几个会话名被分隔标点连成了一个」。
  *
- * 目标会话只认换行和逗号分隔，用户若用顿号分隔，多个名字会被当成一个存下来，
- * 续火时永远匹配不到。解析时不改写数据，只在运行时兜底：逐段都能对上才算数，
- * 避免把真的叫「张三、李四」的好友误判成两个人。
+ * 添加时只认换行和 JSON 数组；旧习惯的标点分隔只在运行时兜底。
+ * 先匹配完整名字，逐段都能对上才拆分，避免拆散带标点的真实昵称。
  *
  * @param {string} name 未命中的目标名
  * @param {Map<string, unknown>} index 会话名 → chatId 索引
@@ -35,8 +34,8 @@ export function formatNameList(names = []) {
  */
 export function splitMergedName(name, index) {
   const value = String(name)
-  if (!value.includes('、')) return undefined
-  const parts = [...new Set(value.split('、').map((part) => part.trim()).filter(Boolean))]
+  if (!/[,，、]/.test(value)) return undefined
+  const parts = [...new Set(value.split(/[,，、]/).map((part) => part.trim()).filter(Boolean))]
   if (parts.length < 2) return undefined
   return parts.every((part) => index.has(part)) ? parts : undefined
 }
@@ -45,7 +44,7 @@ export function splitMergedName(name, index) {
  * 目标名 → 实际要发送的会话列表。
  *
  * 先按整串精确匹配：好友本身就叫「吵死了、」时不能被拆开。
- * 整串匹配不到、且按顿号拆开后每一段都是已有会话时，才还原成多个目标——
+ * 整串匹配不到、且按分隔标点拆开后每一段都是已有会话时，才还原成多个目标——
  * 这样「吵死了、一群凡人」能正确续到两个好友，而不会被当成一个查无此人的名字。
  * 只要有一段对不上就整体算未找到，宁可报错也不猜着发，避免发错人。
  *
@@ -59,4 +58,29 @@ export function resolveNameTargets(name, index) {
   if (chatId) return [{ name: value, chatId }]
   const parts = splitMergedName(value, index)
   return parts ? parts.map((part) => ({ name: part, chatId: index.get(part) })) : []
+}
+
+/**
+ * 旧版在保存时按逗号拆名字；只恢复相邻且能唯一对应完整会话的碎片。
+ * 任一碎片本身是现有会话，或存在多个完整名字候选，就保留原目标，避免猜着发。
+ * 只用于本轮续火，不改写用户数据库。
+ */
+export function restoreSplitTargetNames(names, index) {
+  const candidates = []
+  for (const name of index.keys()) {
+    const parts = String(name).split(/[,，]/).map((part) => part.trim())
+    if (parts.length > 1 && parts.every((part) => part && !index.has(part))) candidates.push({ name, parts })
+  }
+  const restored = []
+  for (let offset = 0; offset < names.length;) {
+    const matches = candidates.filter(({ parts }) => parts.every((part, position) => names[offset + position] === part))
+    if (matches.length === 1) {
+      restored.push(matches[0].name)
+      offset += matches[0].parts.length
+    } else {
+      restored.push(names[offset])
+      offset += 1
+    }
+  }
+  return restored
 }

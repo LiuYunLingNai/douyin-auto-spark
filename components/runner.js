@@ -8,7 +8,7 @@ import timezone from 'dayjs/plugin/timezone.js'
 import { getConfig, getPluginRoot } from './config.js'
 import { getUserEmails, getUserNotificationSettings, listAccounts, setAccountDevice, setAccountUid } from './database.js'
 import { getBot, buildChatIndex, closeBot, formatSdkError } from './douyin.js'
-import { formatNameList, resolveNameTargets } from './format.js'
+import { formatNameList, resolveNameTargets, restoreSplitTargetNames } from './format.js'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -177,16 +177,19 @@ async function runAccount(account, config, yiyans) {
   const sentChats = new Set()
   let sent = 0
 
-  for (const targetName of account.targetNames) {
-    // 选择对象时可能用顿号连着写了两个好友（「A、B」），整串是匹配不到的；
-    // 这里先按整串精确匹配，匹配不到再按顿号还原成多个会话。
+  const targetNames = restoreSplitTargetNames(account.targetNames, index)
+  if (targetNames.length !== account.targetNames.length) {
+    logger.warn(`[${account.name}] 已按真实会话名恢复旧版逗号拆分的目标：${formatNameList(targetNames)}`)
+  }
+  for (const targetName of targetNames) {
+    // 先精确匹配完整会话名；只有整串不存在且每段都匹配时，才按旧分隔习惯回落。
     const targets = resolveNameTargets(targetName, index)
     if (targets.length === 0) {
       missing.push(targetName)
       continue
     }
     if (targets.length > 1) {
-      logger.warn(`[${account.name}] 目标「${targetName}」未精确匹配，已按顿号识别为 ${formatNameList(targets.map((target) => target.name))}`)
+      logger.warn(`[${account.name}] 目标「${targetName}」未精确匹配，已按分隔标点识别为 ${formatNameList(targets.map((target) => target.name))}`)
     }
 
     for (const target of targets) {

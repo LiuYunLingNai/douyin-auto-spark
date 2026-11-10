@@ -17,6 +17,7 @@ export function parseCookies(input) {
 }
 
 export function parseTargetNames(input) {
+  input = String(input).trim()
   let values
   if (input.startsWith('[')) {
     try {
@@ -25,9 +26,10 @@ export function parseTargetNames(input) {
       throw new Error('目标会话 JSON 格式不正确')
     }
   } else {
-    values = input.split(/[,，\n]/)
+    // 名字中的逗号、顿号都是名字的一部分；多个会话用换行或 JSON 数组区分。
+    values = input.split(/\r?\n/)
   }
-  if (!Array.isArray(values)) throw new Error('目标会话必须是数组或逗号分隔的名称')
+  if (!Array.isArray(values)) throw new Error('目标会话必须是 JSON 数组或每行一个名称')
   const names = values.map((value) => String(value).trim()).filter(Boolean)
   if (names.length === 0) throw new Error('至少需要一个目标会话名称')
   return [...new Set(names)]

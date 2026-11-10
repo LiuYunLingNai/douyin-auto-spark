@@ -10,7 +10,7 @@
  * 并在构造 Bot 时显式传入（参照 dmmdekkd/karin-plugin-adapter-douyin 的做法：
  * 它也从不依赖自举，而是把 uid 落库后直接交给 IM 客户端）。
  *
- * SDK 版本：当前锁定 0.6.9，昵称补全使用公开的 `bot.user.info()`。
+ * SDK 版本：当前锁定 0.6.10，昵称补全使用公开的 `bot.user.info()`。
  *   0.6.5 起 `frd.follows/fans/mutual` 整组被删（主站 following/list 换成 spotlight/relation），
  *   好友名单改由 familiar/list 提供；frd.list() 内部那条链路使用默认桌面 version_code
  *   （0.6.6 为 1.1.34，0.6.9 为 1.2.1），服务端不认时静默返回 0 人。好友名单统一走
@@ -18,6 +18,7 @@
  *
  *   0.6.9 移除了 `bot.im()`，资料接口统一走 `bot.user.info()`；
  *   SDK 失败改抛 SdkError（message 固定为 sdk），实际原因需从 data 提取。
+ *   0.6.10 调整扫码轮询与二次验证签名重放，频控退避三次后返回原始业务错误。
  */
 import util from 'node:util'
 import { Bot, chatIdOf, isErr } from 'douyin.ts'
@@ -444,7 +445,7 @@ export async function listFriends(bot) {
   const friends = await hydrateFriendNames(bot, collected)
   // 好友总数用于确认 familiar/list 链路是否正常。
   if (friends.length === 0) {
-    log('warn', '[抖音续火] 好友名单为空：familiar/list 可能被服务端拒绝、无好友，请确认 douyin.ts 已安装到 0.6.9')
+    log('warn', '[抖音续火] 好友名单为空：familiar/list 可能被服务端拒绝、无好友，请确认 douyin.ts 已安装到 0.6.10')
   } else {
     log('info', `[抖音续火] 好友名单 ${friends.length} 个`)
   }
