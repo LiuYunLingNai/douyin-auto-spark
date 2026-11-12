@@ -35,10 +35,12 @@ const schemas = [
     field: 'message.template',
     label: '默认消息模板',
     bottomHelpMessage: '留空则发送随机一言。可用占位符：{{account}} 账号别名、{{friend}} 会话名、{{yiyan}} 一言正文、{{from}} 一言出处、{{date}} 日期、{{time}} 时间、{{weekday}} 星期；换行写 \\n。账号未填写专属模板时使用这份模板。',
-    component: 'Textarea',
-    rows: 3,
+    component: 'InputTextArea',
+    componentProps: {
+      rows: 3,
+      placeholder: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
+    },
     defaultValue: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
-    placeholder: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
   },
   { component: 'Divider', label: '网页账号配置' },
   {
