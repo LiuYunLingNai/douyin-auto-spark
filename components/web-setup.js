@@ -7,6 +7,10 @@ import { addAccount, getUserNotificationSettings, listAccounts, normalizeDevice,
 import { isValidEmail, parseCookies, parseTargetNames, validateTemplate } from './account-setup.js'
 import { toCookieArray, createSdkLog, getBot, listFriends, closeBot, toCookieHeader, formatSdkError } from './douyin.js'
 import { SETUP_CSS, MESSAGE_CSS, heroHtml } from './web-theme.js'
+import { TEMPLATE_EDITOR_CSS, templateEditorHtml, templateEditorScript } from './template-editor.js'
+import { createTemplateSession, revokeTemplateSessions, handleTemplateRequest } from './template-web.js'
+import { parseMessageTemplate } from './message-template.js'
+import { assertTemplateImages } from './template-images.js'
 
 const mountedRoutePrefix = '/douyin-auto-spark'
 const standaloneRoutePrefix = '/douyin-auto-spark'
@@ -52,6 +56,12 @@ export function createAdminLink({ userId }) {
   return { ...result, url: new URL(webState.prefix + '/admin?token=' + result.token, baseUrl).toString() }
 }
 
+export function createDefaultTemplateLink({ userId }) {
+  registerSetupRoutes()
+  const result = createTemplateSession(userId)
+  return { ...result, url: new URL(`${webState.prefix}/template/${result.token}`, getBaseUrl(getConfig())).toString() }
+}
+
 export function bindSetupMessage(token, event, messageId) {
   const session = sessions.get(token)
   if (!session || messageId === undefined || messageId === null) return false
@@ -90,6 +100,7 @@ async function recallBoundSetupMessage(session) {
 }
 
 export function revokeSetupLinks(userId) {
+  revokeTemplateSessions(userId)
   revokeAdminSessions(userId)
   for (const [token, session] of sessions) {
     if (session.userId === String(userId)) {
@@ -167,7 +178,8 @@ function registerMountedRoutes() {
   app.quiet.push(webState.prefix, '/favicon.ico', '/hybridaction/')
   app.use(webState.prefix, (req, res, next) => {
     const pathname = new URL(req.originalUrl, 'http://localhost').pathname
-    handleAdminRequest(req, res, pathname, webState.prefix, createSetupLink, readJsonBody)
+    handleTemplateRequest(req, res, pathname, webState.prefix, getSession, readJsonBody)
+      .then(handled => handled || handleAdminRequest(req, res, pathname, webState.prefix, createSetupLink, readJsonBody))
       .then((handled) => { if (!handled) next() }).catch(next)
   })
   app.get(`${webState.prefix}/setup/:token`, (req, res) => handleSetupPage(req.params.token, res))
@@ -197,6 +209,7 @@ function startStandaloneServer() {
 
 async function handleStandaloneRequest(req, res) {
   const url = new URL(req.url || '/', 'http://localhost')
+  if (await handleTemplateRequest(req, res, url.pathname, webState.prefix, getSession, readJsonBody)) return
   if (await handleAdminRequest(req, res, url.pathname, webState.prefix, createSetupLink, readJsonBody)) return
   const page = new RegExp(`^${webState.prefix}/setup/([a-f0-9]{64})$`).exec(url.pathname)
   const api = new RegExp(`^${webState.prefix}/api/setup/([a-f0-9]{64})$`).exec(url.pathname)
@@ -616,7 +629,7 @@ async function getInitialValues(session) {
   const email = notification?.email || ''
   const successEmailEnabled = notification?.successEmailEnabled || false
   if (session.accountId === undefined) {
-    return { name: '', targetNames: '', messageTemplate: '', email, successEmailEnabled, cookieRequired: true }
+    return { name: '', targetNames: '', messageTemplate: '', defaultTemplate: getConfig().message.template || '', email, successEmailEnabled, cookieRequired: true }
   }
   const account = (await listAccounts(session.userId)).find((item) => item.id === session.accountId)
   if (!account) throw new Error('账号不存在')
@@ -624,6 +637,7 @@ async function getInitialValues(session) {
     name: account.name,
     targetNames: JSON.stringify(account.targetNames, null, 2),
     messageTemplate: account.messageTemplate,
+    defaultTemplate: getConfig().message.template || '',
     email,
     successEmailEnabled,
     cookieRequired: false,
@@ -651,6 +665,7 @@ async function saveWebSetup(session, body, token) {
   const targetNames = parseTargetNames(String(body.targetNames || ''))
   const messageTemplate = String(body.messageTemplate || '').trim()
   validateTemplate(messageTemplate)
+  await assertTemplateImages(parseMessageTemplate(messageTemplate))
   const email = String(body.email || '').trim()
   if (email && !isValidEmail(email)) throw new Error('邮箱格式不正确')
   const successEmailEnabled = body.successEmailEnabled === true || body.successEmailEnabled === 'true'
@@ -712,6 +727,7 @@ export function renderSetupPage(token, initial, editing, prefix = webState?.pref
   <title>${title}</title>
   <style>
     ${SETUP_CSS}
+    ${TEMPLATE_EDITOR_CSS}
   </style>
 </head>
 <body>
@@ -734,7 +750,7 @@ export function renderSetupPage(token, initial, editing, prefix = webState?.pref
           <button id="pickerNext" type="button">下一页</button>
         </div>
       </div>
-      <label>消息模板<textarea id="messageTemplate" placeholder="留空使用随机一言"></textarea></label>
+      ${templateEditorHtml()}
       <label>失败通知邮箱<input id="email" type="email" placeholder="留空则不发送失败邮件"></label>
       <label class="check"><input id="successEmailEnabled" type="checkbox">续火成功时发送邮件通知</label>
       <label>Cookie 文本文件<input id="cookieFile" type="file" accept=".txt,text/plain"><span class="hint">选择后会读取到下方文本框，不会上传文件本身。</span></label>
@@ -777,6 +793,7 @@ export function renderSetupPage(token, initial, editing, prefix = webState?.pref
     let scanTimer;
     let scanUid = '';
     for (const key of ['name', 'targetNames', 'messageTemplate', 'email']) document.querySelector('#' + key).value = initial[key] || '';
+    ${templateEditorScript(token, prefix, initial.defaultTemplate || '')}
     document.querySelector('#successEmailEnabled').checked = Boolean(initial.successEmailEnabled);
     document.querySelector('#cookieFile').addEventListener('change', async event => {
       const file = event.target.files[0];

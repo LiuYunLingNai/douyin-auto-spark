@@ -1,5 +1,8 @@
 import { expandDotPaths, getConfig, saveConfig } from '../components/config.js'
 import { validateTemplate } from '../components/account-setup.js'
+import { parseMessageTemplate } from '../components/message-template.js'
+import { assertTemplateImages } from '../components/template-images.js'
+import { templateActions } from './template-extension.js'
 
 const schemas = [
   {
@@ -34,9 +37,10 @@ const schemas = [
   {
     field: 'message.template',
     label: '默认消息模板',
-    bottomHelpMessage: '留空则发送随机一言。可用占位符：{{account}} 账号别名、{{friend}} 会话名、{{yiyan}} 一言正文、{{from}} 一言出处、{{date}} 日期、{{time}} 时间、{{weekday}} 星期；换行写 \\n。账号未填写专属模板时使用这份模板。',
+    bottomHelpMessage: '直接编辑文字、插入占位符、图链或本地图片，下方实时预览。编辑完成后点击锅巴的“保存”。模板留空则发送随机一言；账号未填写专属模板时使用这份模板。',
     component: 'InputTextArea',
     componentProps: {
+      sparkTemplateEditor: true,
       rows: 3,
       placeholder: '{{friend}}，今天的火花到账啦🔥\\n{{yiyan}}\\n——「{{from}}」\\n{{date}} {{weekday}}',
     },
@@ -150,16 +154,19 @@ const schemas = [
 
 export default {
   schemas,
+  actions: templateActions,
   getConfigData: () => getConfig(),
-  setConfigData(data, { Result }) {
+  async setConfigData(data, { Result }) {
     // 全局模板写错占位符会让所有未设专属模板的账号续火失败，必须在保存前拦下
-    const template = expandDotPaths(data)?.message?.template
+    const settings = expandDotPaths(data)
     try {
+      const template = settings.message?.template
       if (typeof template === 'string') validateTemplate(template)
+      if (typeof template === 'string') await assertTemplateImages(parseMessageTemplate(template))
     } catch (error) {
       return Result.error(`默认消息模板${error.message}`)
     }
-    saveConfig(data)
+    saveConfig(settings)
     return Result.ok({}, '保存成功')
   },
 }

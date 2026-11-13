@@ -9,13 +9,12 @@ import { getConfig, getPluginRoot } from './config.js'
 import { getUserEmails, getUserNotificationSettings, listAccounts, setAccountDevice, setAccountUid } from './database.js'
 import { getBot, buildChatIndex, closeBot, formatSdkError } from './douyin.js'
 import { formatNameList, resolveNameTargets, restoreSplitTargetNames } from './format.js'
+import { parseMessageTemplate, renderMessageParts } from './message-template.js'
+import { sendTemplateMessages } from './template-send.js'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
 dayjs.locale('zh-cn')
-
-const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z]+)\s*\}\}/g
-const PLACEHOLDERS = new Set(['account', 'friend', 'yiyan', 'from', 'date', 'time', 'weekday'])
 
 /** 当前正在执行的续火；同一时间只跑一轮，避免两轮共用同一账号连接时互相关掉对方的连接 */
 let running
@@ -173,8 +172,9 @@ async function runAccount(account, config, yiyans) {
   const missing = []
   const ambiguousHits = []
   const sendErrors = []
-  // 同一会话一轮只发一次：目标里同时写了「A」和「A、B」时，A 不应收到两条
+  // 同一会话一轮只发送一份模板：别名或旧分隔写法不能让整份内容重复发送
   const sentChats = new Set()
+  const imageCache = new Map()
   let sent = 0
 
   const targetNames = restoreSplitTargetNames(account.targetNames, index)
@@ -203,23 +203,16 @@ async function runAccount(account, config, yiyans) {
 
       const yiyan = needsYiyan && yiyans.length ? pickRandom(yiyans) : undefined
       const message = account.messageTemplate
-        ? renderTemplate(account.messageTemplate, account.name, target.name, yiyan)
+        ? renderMessageParts(account.messageTemplate, templateValues(account.name, target.name, yiyan))
         : yiyan
           ? config.message.includeSource !== false
-            ? `${yiyan.hitokoto}\n——「${yiyan.from}」`
-            : yiyan.hitokoto
-          : ''
-      if (!message) {
-        throw new Error(`账号“${account.name}”没有可发送的内容：消息模板为空且未取得一言`)
-      }
-
+            ? [{ type: 'text', text: `${yiyan.hitokoto}\n——「${yiyan.from}」` }]
+            : [{ type: 'text', text: yiyan.hitokoto }]
+          : []
       // 单个会话发送失败不影响其余会话，全部发完再统一报错
       try {
-        const result = await bot.msg.send(target.chatId, { type: 'text', text: message })
-        if (result?.statusCode !== 0) {
-          throw new Error(`${result?.statusMsg || result?.statusCode}${result?.checkCode ? `（审核码 ${result.checkCode}）` : ''}`)
-        }
-        sent += 1
+        if (!message.length) throw new Error(`账号“${account.name}”没有可发送的内容：消息模板为空且未取得一言`)
+        await sendTemplateMessages(bot, target.chatId, message, imageCache, () => { sent += 1 })
       } catch (error) {
         sendErrors.push(`向“${target.name}”发送失败：${toError(error).message}`)
       }
@@ -310,15 +303,14 @@ function formatFailure(failure) {
 
 function normalizeTemplate(template) {
   if (!template) return ''
-  const unknown = [...template.matchAll(PLACEHOLDER_RE)].map((match) => match[1]).filter((name) => !PLACEHOLDERS.has(name))
-  if (unknown.length) throw new Error(`消息模板存在未识别占位符：${[...new Set(unknown)].join('、')}`)
+  parseMessageTemplate(template)
   return template.replace(/\\n/g, '\n')
 }
 
-function renderTemplate(template, account, friend, yiyan) {
+function templateValues(account, friend, yiyan) {
   const now = dayjs().tz('Asia/Shanghai')
   const values = { account, friend, yiyan: yiyan?.hitokoto || '', from: yiyan?.from || '', date: now.format('YYYY-MM-DD'), time: now.format('HH:mm'), weekday: now.format('dddd') }
-  return template.replace(PLACEHOLDER_RE, (_match, name) => values[name] ?? '')
+  return values
 }
 
 async function loadYiyans() {

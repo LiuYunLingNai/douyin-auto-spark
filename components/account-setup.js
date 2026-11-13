@@ -1,3 +1,5 @@
+import { parseMessageTemplate } from './message-template.js'
+
 export function isPrivate(e) {
   return !e.isGroup && !e.group_id
 }
@@ -36,11 +38,7 @@ export function parseTargetNames(input) {
 }
 
 export function validateTemplate(template) {
-  const allowed = new Set(['account', 'friend', 'yiyan', 'from', 'date', 'time', 'weekday'])
-  const unknown = [...template.matchAll(/\{\{\s*([a-zA-Z]+)\s*\}\}/g)]
-    .map((match) => match[1])
-    .filter((name) => !allowed.has(name))
-  if (unknown.length > 0) throw new Error(`存在未识别占位符：${[...new Set(unknown)].join('、')}`)
+  parseMessageTemplate(template)
 }
 
 export function isValidEmail(email) {

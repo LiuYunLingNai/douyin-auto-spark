@@ -62,6 +62,7 @@ export default {
       auth: 'master',
       list: [
         { icon: 'shield', title: '#抖音管理账号', desc: '打开管理网页，查看与管理全部账号' },
+        { icon: 'edit', title: '#抖音默认模板', desc: '可视化编辑默认模板、预览并上传本地图片' },
         { icon: 'update', title: '#抖音插件更新', desc: '更新抖音续火插件' },
         { icon: 'update', title: '#抖音插件强制更新', desc: '丢弃本地改动后强制更新' },
         { icon: 'list', title: '#抖音插件更新日志', desc: '查看插件更新日志' },

@@ -10,6 +10,7 @@ import {
   bindSetupMessage,
   createSetupLink,
   createAdminLink,
+  createDefaultTemplateLink,
   revokeSetupLinks,
 } from '../components/web-setup.js'
 import { closeBot } from '../components/douyin.js'
@@ -23,6 +24,7 @@ import {
 export const accountHandlers = {
   startAddAccount,
   manageAccounts,
+  editDefaultTemplate,
   cancelAddAccount,
   accountList,
   removeAccount,
@@ -32,6 +34,18 @@ export const accountHandlers = {
   disableSuccessEmail,
   clearEmail,
   showEmail,
+}
+
+async function editDefaultTemplate(e) {
+  if (!e.isMaster) { await e.reply('只有机器人主人可以修改默认消息模板。'); return true }
+  if (!isPrivate(e)) { await e.reply('请私聊机器人发送 #抖音默认模板。'); return true }
+  try {
+    const { url, expiresMinutes } = createDefaultTemplateLink({ userId: e.user_id })
+    await e.reply(`默认消息模板编辑页（${expiresMinutes} 分钟内有效）：\n${url}`)
+  } catch (error) {
+    await e.reply(`创建模板编辑页失败：${error.message}`)
+  }
+  return true
 }
 
 async function manageAccounts(e) {
