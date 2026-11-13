@@ -13,33 +13,13 @@ export function validateImageSource(source) {
   throw new Error('图片需使用完整 http/https 图链，或在编辑页上传本地图片')
 }
 
-/** 贴纸仅允许 IM 表情资源，避免把 tos-cn 表态图当成仅自己可见的表情发送。 */
-export function validateEmojiValue(value, kind) {
-  if (kind === 'small' && /^[a-zA-Z0-9_-]{1,100}$/.test(value)) return value
-  if (kind === 'sticker') {
-    if (/^[a-zA-Z0-9_-]{1,200}$/.test(value)) return value
-    try {
-      const url = new URL(value)
-      if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && /\/(im-resource|im-emoticon)\//.test(url.pathname) && !/[\s{}]/.test(value)) return value
-    } catch {}
-  }
-  throw new Error('表情引用无效，请从表情列表重新选择；贴纸需使用 im-resource 或 im-emoticon 资源')
-}
-
-export function parseEmojiPayload(payload) {
-  let data
-  try { data = JSON.parse(decodeURIComponent(payload)) } catch { throw new Error('表情指令格式不正确，请从表情列表重新选择') }
-  if (!data || typeof data !== 'object' || typeof data.value !== 'string' || typeof data.url !== 'string' || typeof data.name !== 'string' || data.name.length > 200 || payload.length > 8000) throw new Error('表情数据无效，请重新选择')
-  validateEmojiValue(data.value, data.kind)
-  validateImageSource(data.url)
-  if (data.url.startsWith('local:')) throw new Error('表情预览需使用资源图片链接')
-  return { type: 'emoji', emoji: data.value, preview: data.url, name: data.name, kind: data.kind }
+export function validateEmojiValue(value) {
+  if (typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value)) return value
+  throw new Error('小表情格式不正确，请使用 {{emoji:weixiao}} 或从列表重新选择')
 }
 
 export function emojiTemplate(item) {
-  const payload = encodeURIComponent(JSON.stringify({ value: item.value ?? item.emoji, url: item.url ?? item.preview, name: item.name, kind: item.kind }))
-  parseEmojiPayload(payload)
-  return `{{emoji:${payload}}}`
+  return `{{emoji:${validateEmojiValue(item.value ?? item.emoji)}}}`
 }
 
 export function parseMessageTemplate(value) {
@@ -49,7 +29,7 @@ export function parseMessageTemplate(value) {
   let offset = 0
   for (const match of template.matchAll(pattern)) {
     if (match.index > offset) parts.push({ type: 'text', text: template.slice(offset, match.index) })
-    parts.push(match[1] === 'image' ? { type: 'image', source: validateImageSource(match[2].trim()) } : parseEmojiPayload(match[2].trim()))
+    parts.push(match[1] === 'image' ? { type: 'image', source: validateImageSource(match[2].trim()) } : { type: 'emoji', emoji: validateEmojiValue(match[2].trim()) })
     offset = match.index + match[0].length
   }
   if (offset < template.length) parts.push({ type: 'text', text: template.slice(offset) })
@@ -70,5 +50,20 @@ export function renderMessageParts(template, values) {
   return parseMessageTemplate(template).map(part => part.type !== 'text'
     ? part
     : { type: 'text', text: part.text.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, name) => values[name] ?? '') })
-    .filter(part => part.type !== 'text' || part.text.trim())
+}
+
+/** 小表情属于文字消息；只有图片会分隔消息，分组前保留所有换行与空格。 */
+export function groupMessageParts(parts) {
+  const groups = []
+  let inline = []
+  const flush = () => {
+    if (inline.some(part => part.type === 'emoji' || part.text.trim())) groups.push({ type: 'text', parts: inline })
+    inline = []
+  }
+  for (const part of parts) {
+    if (part.type === 'image') { flush(); groups.push(part) }
+    else inline.push(part)
+  }
+  flush()
+  return groups
 }

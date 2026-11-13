@@ -1,4 +1,4 @@
-import { TEMPLATE_FIELDS, parseMessageTemplate, validateImageSource, validateEmojiValue, parseEmojiPayload, emojiTemplate } from './message-template.js'
+import { TEMPLATE_FIELDS, parseMessageTemplate, validateImageSource, validateEmojiValue, emojiTemplate, groupMessageParts } from './message-template.js'
 import { SETUP_CSS, heroHtml } from './web-theme.js'
 
 export const TEMPLATE_EDITOR_CSS = `
@@ -16,7 +16,7 @@ export const TEMPLATE_EDITOR_CSS = `
 .template-emoji-grid button{min-width:0;padding:var(--sp-2);font-size:13px;overflow-wrap:anywhere}
 .template-emoji-grid img{display:block;width:64px;height:64px;object-fit:contain;margin:0 auto var(--sp-2)}
 .template-editor select{max-width:100%;font:inherit;padding:var(--sp-2)}
-.template-emoji-preview img{width:96px;height:96px;object-fit:contain}
+.template-preview p img.template-inline-emoji{display:inline-block;width:1.5em;height:1.5em;max-height:none;object-fit:contain;vertical-align:middle;margin:0}
 `
 
 export function templateEditorHtml() {
@@ -37,7 +37,7 @@ export function templateEditorHtml() {
       <span class="hint" id="templateEmojiStatus" role="status">读取后点击图片添加小表情。</span>
       <div id="templateEmojiList" class="template-emoji-grid"></div>
     </details>
-    <span class="hint">文字、图片与表情按位置分别发送。直接换行即可；也兼容原有的 \\n 写法。</span>
+    <span class="hint">小表情与前后文字合为一条消息，换行保持原样；图片单独发送。也兼容原有的 \\n 写法。</span>
     <div class="template-preview" id="templatePreview" aria-label="发送内容预览"></div>
     <span id="templateEditorStatus" class="hint" role="status"></span>
   </section>`
@@ -51,13 +51,14 @@ export function templateEditorScript(token, prefix, defaultTemplate = '', defaul
     const TEMPLATE_FIELDS = ${JSON.stringify(TEMPLATE_FIELDS)};
     const validateImageSource = ${validateImageSource.toString()};
     const validateEmojiValue = ${validateEmojiValue.toString()};
-    const parseEmojiPayload = ${parseEmojiPayload.toString()};
     const emojiTemplate = ${emojiTemplate.toString()};
     const parseMessageTemplate = ${parseMessageTemplate.toString()};
+    const groupMessageParts = ${groupMessageParts.toString()};
     const input = document.getElementById('messageTemplate');
     const preview = document.getElementById('templatePreview');
     const notice = document.getElementById('templateEditorStatus');
     const localPreviews = new Map();
+    const emojiCatalog = new Map();
     let uploading = false;
     const imageUrl = source => source.startsWith('local:')
       ? localPreviews.get(source) || boot.prefix + '/api/template/image/' + boot.token + '/' + source.slice(6)
@@ -70,19 +71,22 @@ export function templateEditorScript(token, prefix, defaultTemplate = '', defaul
       try {
         const now = new Date();
         const values = { account: document.getElementById('name')?.value || '我的账号', friend: '好友小明', yiyan: '愿你今天也有好心情。', from: '示例一言', date: now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }), time: now.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' }), weekday: now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }) };
-        const parts = parseMessageTemplate(input.value.trim() || boot.defaultTemplate || '{{yiyan}}');
+        const parts = groupMessageParts(parseMessageTemplate(input.value.trim() || boot.defaultTemplate || '{{yiyan}}'));
         for (const part of parts) {
           if (part.type === 'image') {
             const img = document.createElement('img'); img.src = imageUrl(part.source); img.alt = '模板图片'; img.referrerPolicy = 'no-referrer';
             img.onerror = () => { img.replaceWith(document.createTextNode('图片无法预览，请检查图链或重新上传本地图片')); }; preview.append(img);
-          } else if (part.type === 'emoji') {
-            const figure = document.createElement('div'); figure.className = 'template-emoji-preview';
-            const img = document.createElement('img'); img.src = part.preview; img.alt = part.name; img.referrerPolicy = 'no-referrer';
-            img.onerror = () => img.replaceWith(document.createTextNode('表情图片不可用，请重新读取并选择'));
-            const name = document.createElement('span'); name.className = 'hint'; name.textContent = part.name;
-            figure.append(img, name); preview.append(figure);
-          } else if (part.text.trim()) {
-            const text = document.createElement('p'); text.textContent = part.text.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, name) => values[name] || ''); preview.append(text);
+          } else {
+            const text = document.createElement('p');
+            for (const item of part.parts) {
+              if (item.type === 'text') { text.append(document.createTextNode(item.text.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, name) => values[name] || ''))); continue; }
+              const emoji = emojiCatalog.get(item.emoji);
+              if (emoji) {
+                const img = document.createElement('img'); img.className = 'template-inline-emoji'; img.src = emoji.url; img.alt = emoji.name; img.title = emoji.name; img.referrerPolicy = 'no-referrer';
+                img.onerror = () => img.replaceWith(document.createTextNode(emoji.name + '（图片不可用）')); text.append(img);
+              } else text.append(document.createTextNode(item.emoji + '（请读取小表情以显示图片）'));
+            }
+            preview.append(text);
           }
         }
         notice.textContent = '';
@@ -134,10 +138,11 @@ export function templateEditorScript(token, prefix, defaultTemplate = '', defaul
         const body = { kind: 'small', accountId: emojiAccount.value, name: document.getElementById('name')?.value, cookies: document.getElementById('cookieText')?.value || '' };
         const response = await fetch(boot.prefix + '/api/template/emojis/' + boot.token, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
         const data = await response.json(); if (!response.ok || !data.ok) throw new Error(data.message || '表情读取失败');
+        for (const item of data.items) emojiCatalog.set(item.value, item);
         emojiPage = data;
         emojiStatus.textContent = (data.items.length ? '点击图片插入小表情（共 ' + data.items.length + ' 个）' : '没有可用小表情') + (data.skipped ? '；' + data.skipped + ' 个表情缺少图片资源，已跳过' : '');
       } catch (error) { emojiStatus.textContent = error.message; }
-      finally { emojiLoading = false; emojiLoad.disabled = false; emojiAccount.disabled = false; drawEmojis(); }
+      finally { emojiLoading = false; emojiLoad.disabled = false; emojiAccount.disabled = false; drawEmojis(); refresh(); }
     }
     document.getElementById('templateEmojiPanel').addEventListener('toggle', async event => {
       if (!boot.defaultEditor || !event.target.open || accountLoaded) return;
@@ -154,6 +159,9 @@ export function templateEditorScript(token, prefix, defaultTemplate = '', defaul
     window.addEventListener('pagehide', () => { for (const url of localPreviews.values()) URL.revokeObjectURL(url); });
     input.form.addEventListener('submit', event => { if (uploading) { event.preventDefault(); event.stopImmediatePropagation(); notice.textContent = '请等待图片上传完成再保存'; } }, true);
     refresh();
+    fetch(boot.prefix + '/api/template/emoji-catalog/' + boot.token).then(response => response.json()).then(data => {
+      if (data.ok) { for (const item of data.items) if (!emojiCatalog.has(item.value)) emojiCatalog.set(item.value, item); refresh(); }
+    }).catch(() => {});
   })();`
 }
 

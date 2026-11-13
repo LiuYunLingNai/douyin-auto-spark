@@ -2,8 +2,34 @@ import { listAccounts } from './database.js'
 import { getBot, closeBot, formatSdkError } from './douyin.js'
 import { validateEmojiValue, validateImageSource } from './message-template.js'
 import { randomBytes } from 'node:crypto'
+import fs from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 const readingAccounts = new Set()
+const catalogFile = fileURLToPath(new URL('../data/template-emojis.json', import.meta.url))
+let catalog
+let catalogWrite = Promise.resolve()
+
+/** 预览目录独立于模板存储，不携带 Cookie；打开编辑器时不自动登录抖音。 */
+export async function getTemplateEmojiCatalog() {
+  if (!catalog) {
+    try {
+      const saved = JSON.parse(await fs.readFile(catalogFile, 'utf8'))
+      catalog = normalizeEmojiPage(saved.map(item => ({ id: item.value, name: item.name, urls: [item.url] })), 'small').items
+    } catch { catalog ||= [] }
+  }
+  return catalog
+}
+
+async function rememberCatalog(items) {
+  if (!items.length) return
+  catalog = items
+  catalogWrite = catalogWrite.catch(() => {}).then(async () => {
+    await fs.mkdir(fileURLToPath(new URL('../data/', import.meta.url)), { recursive: true })
+    await fs.writeFile(catalogFile, JSON.stringify(items), 'utf8')
+  })
+  await catalogWrite.catch(error => globalThis.logger?.warn?.(`[抖音续火] 表情预览目录保存失败：${error.message}`))
+}
 
 export function emojiQuery(input = {}) {
   const kind = input.kind || 'small'
@@ -43,7 +69,9 @@ export function normalizeEmojiPage(page, kind, cursor = 0) {
 export async function fetchTemplateEmojis(bot, options) {
   const { kind, cursor } = emojiQuery(options)
   const page = await bot.media.emojiList()
-  return normalizeEmojiPage(page, kind, cursor)
+  const result = normalizeEmojiPage(page, kind, cursor)
+  await rememberCatalog(result.items)
+  return result
 }
 
 /** 模板管理员选择已保存账号读取资源；不向浏览器下发 Cookie。 */

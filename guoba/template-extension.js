@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
-import { TEMPLATE_FIELDS, parseMessageTemplate, validateImageSource, validateEmojiValue, parseEmojiPayload, emojiTemplate } from '../components/message-template.js'
-import { readAccountTemplateEmojis, templateEmojiAccounts } from '../components/template-emojis.js'
+import { TEMPLATE_FIELDS, parseMessageTemplate, validateImageSource, validateEmojiValue, emojiTemplate, groupMessageParts } from '../components/message-template.js'
+import { readAccountTemplateEmojis, templateEmojiAccounts, getTemplateEmojiCatalog } from '../components/template-emojis.js'
 import { MAX_TEMPLATE_IMAGE_BYTES, readTemplateImage, saveTemplateImage } from '../components/template-images.js'
 
 const capabilities = new Map()
@@ -19,6 +19,7 @@ function capability(action, source) {
 
 /** 由原版锅巴已鉴权的 action 调用，上传与预览只签发短期单用途凭据。 */
 export const templateActions = {
+  async templateEmojiCatalog(_args, { Result }) { return Result.ok({ items: await getTemplateEmojiCatalog() }) },
   async templateEmojiAccounts(_args, { Result }) { return Result.ok({ accounts: await templateEmojiAccounts() }) },
   async templateEmojis(args, { Result }) {
     try { return Result.ok(await readAccountTemplateEmojis(args?.[0], args?.[1] || {})) }
@@ -47,7 +48,7 @@ async function componentModule() {
   const names = { defineComponent: 'defineComponent', h: 'h', ref: 'ref', watch: 'watch', onMounted: 'onMounted', onBeforeUnmount: 'onBeforeUnmount', nextTick: 'nextTick', defHttp: 'defHttp' }
   const imports = Object.keys(names).map(name => `${exportAlias(index, name)} as ${name}`).join(', ')
   const source = await fs.readFile(new URL('template-component.js', import.meta.url), 'utf8')
-  return `import { ${imports} } from '${prefix}/assets/index.js';\nimport { ${exportAlias(registry, 'componentMap')} as componentMap } from '${prefix}/assets/${registryFile}';\nconst TEMPLATE_FIELDS = ${JSON.stringify(TEMPLATE_FIELDS)};\n${[validateImageSource, validateEmojiValue, parseEmojiPayload, emojiTemplate, parseMessageTemplate].map(fn => `const ${fn.name} = ${fn.toString()};`).join('\n')}\n${source}\nregisterTemplateEditor({${Object.keys(names).join(',')}}, componentMap, { TEMPLATE_FIELDS, parseMessageTemplate, validateImageSource, emojiTemplate });`
+  return `import { ${imports} } from '${prefix}/assets/index.js';\nimport { ${exportAlias(registry, 'componentMap')} as componentMap } from '${prefix}/assets/${registryFile}';\nconst TEMPLATE_FIELDS = ${JSON.stringify(TEMPLATE_FIELDS)};\n${[validateImageSource, validateEmojiValue, emojiTemplate, parseMessageTemplate, groupMessageParts].map(fn => `const ${fn.name} = ${fn.toString()};`).join('\n')}\n${source}\nregisterTemplateEditor({${Object.keys(names).join(',')}}, componentMap, { TEMPLATE_FIELDS, parseMessageTemplate, validateImageSource, emojiTemplate, groupMessageParts });`
 }
 
 function json(res, status, value) { res.statusCode = status; res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.end(JSON.stringify(value)) }

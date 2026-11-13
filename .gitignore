@@ -5,4 +5,5 @@ data/*.db
 data/*.db-*
 data/*.db.tmp
 data/template-images/
+data/template-emojis.json
 .preview/
