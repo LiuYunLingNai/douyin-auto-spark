@@ -11,6 +11,8 @@ export async function sendTemplateMessages(bot, chatId, parts, imageCache = new 
         upload.catch(() => { if (imageCache.get(part.source) === upload) imageCache.delete(part.source) })
       }
       body = { type: 'image', image: await imageCache.get(part.source) }
+    } else if (part.type === 'emoji') {
+      body = { type: 'emoji', emoji: part.emoji, text: part.name || '[表情]' }
     } else {
       body = { type: 'text', text: part.text }
     }

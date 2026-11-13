@@ -37,7 +37,7 @@ const schemas = [
   {
     field: 'message.template',
     label: '默认消息模板',
-    bottomHelpMessage: '直接编辑文字、插入占位符、图链或本地图片，下方实时预览。编辑完成后点击锅巴的“保存”。模板留空则发送随机一言；账号未填写专属模板时使用这份模板。',
+    bottomHelpMessage: '直接编辑文字、图片和抖音表情，下方实时预览。表情选择器按图片和名称展示，选一个账号读取后点击添加。编辑完成后点击锅巴的“保存”。模板留空则发送随机一言；账号未填写专属模板时使用这份模板。',
     component: 'InputTextArea',
     componentProps: {
       sparkTemplateEditor: true,

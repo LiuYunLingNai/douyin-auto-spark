@@ -17,6 +17,11 @@ export function registerTemplateEditor(vue, componentMap, tools) {
   .spark-template .st-help{font-size:13px;line-height:1.7;opacity:.8;overflow-wrap:anywhere}.spark-template .st-error{color:#cf1322;overflow-wrap:anywhere}
   .spark-template .st-preview{border-top:1px solid #d9d9d9;padding-top:12px;margin-top:16px}.spark-template .st-preview p{white-space:pre-wrap;overflow-wrap:anywhere;max-width:35em}
   .spark-template details{margin:12px 0}.spark-template summary{cursor:pointer}.spark-template .st-preview-title{font-weight:600;margin-bottom:8px}
+  .spark-template .st-emoji-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;max-height:340px;overflow:auto;margin:12px 0}
+  .spark-template .st-emoji-grid button{min-width:0;overflow-wrap:anywhere;font-size:13px;padding:8px}
+  .spark-template .st-emoji-grid img{display:block;width:64px;height:64px;object-fit:contain;margin:0 auto 8px}
+  .spark-template .st-emoji-image{display:block;width:96px;height:96px;object-fit:contain;margin:8px 0}
+  .spark-template select{max-width:100%;font:inherit;padding:6px}.spark-template .st-emoji-panel input{min-width:0}
   [data-theme=dark] .spark-template .st-block,[data-theme=dark] .spark-template button,[data-theme=dark] .spark-template .st-url,[data-theme=dark] .spark-template .st-source{border-color:#595959}
   [data-theme=dark] .spark-template .st-token{background:#111d2c;color:#69c0ff;border-color:#177ddc}
   `
@@ -25,6 +30,8 @@ export function registerTemplateEditor(vue, componentMap, tools) {
     props: { value: { type: String, default: '' }, disabled: Boolean }, emits: ['change'],
     setup(props, { emit }) {
       const blocks = ref([]), error = ref(''), busy = ref(false), imageUrl = ref(''), preview = ref([])
+      const emojiOpen = ref(false), emojiLoading = ref(false), emojiAccounts = ref([]), emojiAccount = ref(''), emojiSearch = ref(''), emojiPage = ref(null), emojiStatus = ref('请选择账号，读取后点击图片添加小表情')
+      let accountsLoaded = false
       const editors = new Map(), imageUrls = new Map(), editorRefs = new Map()
       let sequence = 0, ownValue = props.value, active, caret, alive = true, previewGeneration = 0
       const makeBlock = part => ({ ...part, key: ++sequence })
@@ -35,7 +42,7 @@ export function registerTemplateEditor(vue, componentMap, tools) {
         active = blocks.value.find(block => block.type === 'text')?.key; caret = undefined
         refreshPreview()
       }
-      function encode() { return blocks.value.map(block => block.type === 'image' ? '{{image:' + block.source + '}}' : block.text).join('') }
+      function encode() { return blocks.value.map(block => block.type === 'image' ? '{{image:' + block.source + '}}' : block.type === 'emoji' ? tools.emojiTemplate(block) : block.text).join('') }
       function update() { ownValue = encode(); emit('change', ownValue); refreshPreview() }
       async function action(name, args) {
         const response = await vue.defHttp.post({ url: '/plugin/do/douyin-auto-spark/action', params: { action: name, args } }, { isTransformResponse: false })
@@ -55,7 +62,7 @@ export function registerTemplateEditor(vue, componentMap, tools) {
         try {
           const now = new Date(), values = { account: '我的账号', friend: '好友小明', yiyan: '愿你今天也有好心情。', from: '示例一言', date: now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }), time: now.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' }), weekday: now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }) }
           const parts = parseMessageTemplate(encode() || '{{yiyan}}')
-          const rows = await Promise.all(parts.map(async part => part.type === 'image' ? { ...part, url: await localUrl(part.source) } : { ...part, text: part.text.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, key) => values[key] || '') }))
+          const rows = await Promise.all(parts.map(async part => part.type === 'image' ? { ...part, url: await localUrl(part.source) } : part.type === 'emoji' ? { ...part, url: part.preview } : { ...part, text: part.text.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_, key) => values[key] || '') }))
           if (alive && generation === previewGeneration) { preview.value = rows; error.value = '' }
         } catch (cause) { if (alive && generation === previewGeneration) error.value = cause.message }
       }
@@ -118,6 +125,31 @@ export function registerTemplateEditor(vue, componentMap, tools) {
         } catch (cause) { error.value = cause.message }
         finally { busy.value = false; event.target.value = '' }
       }
+      async function openEmojis() {
+        emojiOpen.value = !emojiOpen.value
+        if (!emojiOpen.value || accountsLoaded) return
+        try {
+          const data = await action('templateEmojiAccounts', [])
+          if (!alive) return
+          emojiAccounts.value = data.accounts; accountsLoaded = true; emojiAccount.value = data.accounts[0]?.id || ''
+          if (!data.accounts.length) emojiStatus.value = '请先添加一个抖音账号，再读取表情'
+        } catch (cause) { if (alive) emojiStatus.value = cause.message }
+      }
+      function resetEmojis() { emojiPage.value = null; emojiSearch.value = ''; emojiStatus.value = '点击“读取小表情”加载所选账号' }
+      async function loadEmojis() {
+        if (emojiLoading.value) return
+        if (!emojiAccount.value) { emojiStatus.value = '请选择一个抖音账号'; return }
+        emojiLoading.value = true; emojiStatus.value = '正在读取小表情…'
+        try {
+          const data = await action('templateEmojis', [emojiAccount.value, { kind: 'small' }])
+          if (!alive) return
+          emojiPage.value = data
+          emojiStatus.value = (data.items.length ? `点击图片添加小表情（共 ${data.items.length} 个）` : '没有可用小表情') + (data.skipped ? `；${data.skipped} 个表情缺少图片资源，已跳过` : '')
+        } catch (cause) { if (alive) emojiStatus.value = cause.message }
+        finally { emojiLoading.value = false }
+      }
+      function addEmoji(item) { try { tools.emojiTemplate(item); blocks.value.push(makeBlock({ type: 'emoji', emoji: item.value, preview: item.url, name: item.name, kind: item.kind })); update() } catch (cause) { error.value = cause.message } }
+      const emojiImage = (url, name, className) => h('img', { class: className, src: url, alt: name, referrerpolicy: 'no-referrer', onError: event => { event.target.replaceWith(document.createTextNode('表情图片不可用，请重新读取')) } })
       function move(index, direction) { const [block] = blocks.value.splice(index, 1); blocks.value.splice(index + direction, 0, block); update() }
       const button = (text, handler, disabled = false) => h('button', { type: 'button', disabled: props.disabled || busy.value || disabled, onMousedown: event => event.preventDefault(), onClick: handler }, text)
       watch(() => props.value, value => { if (value !== ownValue) { ownValue = value; decode(value) } })
@@ -127,21 +159,31 @@ export function registerTemplateEditor(vue, componentMap, tools) {
         h('style', css),
         h('div', { class: 'st-tools' }, Object.entries(TEMPLATE_FIELDS).map(([key, label]) => button(label, () => insertToken(key))).concat(button('添加文字', addText))),
         ...blocks.value.map((block, index) => h('div', { key: block.key, class: 'st-block' }, [
-          h('div', { class: 'st-actions' }, [h('span', `${index + 1}. ${block.type === 'text' ? '文字' : '图片'}`), button('上移', () => move(index, -1), index === 0), button('下移', () => move(index, 1), index === blocks.value.length - 1), button('删除', () => { blocks.value.splice(index, 1); update() })]),
+          h('div', { class: 'st-actions' }, [h('span', `${index + 1}. ${block.type === 'text' ? '文字' : block.type === 'emoji' ? '表情 · ' + block.name : '图片'}`), button('上移', () => move(index, -1), index === 0), button('下移', () => move(index, 1), index === blocks.value.length - 1), button('删除', () => { blocks.value.splice(index, 1); update() })]),
           block.type === 'text' ? h('div', {
             class: 'st-text', contenteditable: !props.disabled && !busy.value, role: 'textbox', 'aria-label': '模板文字', 'aria-multiline': 'true',
             ref: editorRef(block),
             onInput: event => textChanged(block, event.target), onFocus: () => remember(block.key), onKeyup: () => remember(block.key), onMouseup: () => remember(block.key),
             onPaste: event => { event.preventDefault(); const text = event.clipboardData.getData('text/plain'); document.execCommand('insertText', false, text) },
-          }) : [
+          }) : block.type === 'emoji' ? [emojiImage(block.preview, block.name, 'st-emoji-image'), h('span', { class: 'st-help' }, block.kind === 'small' ? '抖音小表情' : '抖音贴纸')] : [
             h('input', { class: 'st-url', value: block.source, disabled: props.disabled || busy.value, 'aria-label': '图片地址', onInput: event => { block.source = event.target.value; update() } }),
             preview.value.find(part => part.source === block.source)?.url ? h('img', { class: 'st-image', src: preview.value.find(part => part.source === block.source).url, alt: '模板图片', referrerpolicy: 'no-referrer' }) : null,
           ],
         ])),
+        button(emojiOpen.value ? '收起表情' : '添加抖音表情', openEmojis),
+        ...(emojiOpen.value ? [h('section', { class: 'st-emoji-panel', 'aria-label': '抖音表情选择器' }, [
+          h('div', { class: 'st-tools' }, [
+            h('select', { value: emojiAccount.value, disabled: emojiLoading.value, 'aria-label': '读取表情的账号', onChange: event => { emojiAccount.value = event.target.value; resetEmojis() } }, [h('option', { value: '' }, '请选择账号'), ...emojiAccounts.value.map(account => h('option', { value: account.id }, account.name + '（' + account.id + '）'))]),
+            button('读取小表情', () => loadEmojis(), emojiLoading.value),
+          ]),
+          h('input', { class: 'st-url', placeholder: '搜索小表情名称', 'aria-label': '搜索表情', value: emojiSearch.value, onInput: event => emojiSearch.value = event.target.value }),
+          h('p', { class: 'st-help', role: 'status' }, emojiStatus.value),
+          h('div', { class: 'st-emoji-grid' }, (emojiPage.value?.items || []).filter(item => item.name.toLowerCase().includes(emojiSearch.value.trim().toLowerCase())).map(item => h('button', { type: 'button', disabled: props.disabled || busy.value, title: item.name, onClick: () => addEmoji(item) }, [h('img', { src: item.url, alt: item.name, loading: 'lazy', referrerpolicy: 'no-referrer', onError: event => { event.target.parentElement.disabled = true; event.target.replaceWith(document.createTextNode('图片不可用')) } }), h('span', item.name)]))),
+        ])] : []),
         h('div', { class: 'st-tools' }, [h('input', { class: 'st-url', value: imageUrl.value, disabled: props.disabled || busy.value, placeholder: '图片链接 https://…', 'aria-label': '添加图片链接', onInput: event => imageUrl.value = event.target.value }), button('添加图链', () => { try { addImage(imageUrl.value.trim()) } catch (cause) { error.value = cause.message } }), h('label', [h('span', '上传本地图片 '), h('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp', disabled: props.disabled || busy.value, onChange: upload })])]),
-        h('p', { class: 'st-help' }, busy.value ? '正在上传图片，请完成后再保存。' : '点击按钮插入占位符，可直接换行。文字与图片按顺序发送；拖选文字可修改，占位符块可删除。图片最多 10 张，每张最多 5 MB。'),
+        h('p', { class: 'st-help' }, busy.value ? '正在上传图片，请完成后再保存。' : '文字、图片与表情按顺序发送。图片最多 10 张，每张最多 5 MB；表情最多 20 个。'),
         h('p', { class: 'st-error', role: 'status' }, error.value),
-        h('div', { class: 'st-preview', 'aria-label': '模板实时预览' }, [h('div', { class: 'st-preview-title' }, encode().trim() ? '实时预览 · 示例好友和一言' : '模板留空 · 将发送随机一言'), ...preview.value.map(part => part.type === 'image' ? h('img', { class: 'st-image', src: part.url, alt: '发送图片预览', referrerpolicy: 'no-referrer' }) : h('p', part.text))]),
+        h('div', { class: 'st-preview', 'aria-label': '模板实时预览' }, [h('div', { class: 'st-preview-title' }, encode().trim() ? '实时预览 · 示例好友和一言' : '模板留空 · 将发送随机一言'), ...preview.value.map(part => part.type === 'image' ? h('img', { class: 'st-image', src: part.url, alt: '发送图片预览', referrerpolicy: 'no-referrer' }) : part.type === 'emoji' ? h('div', [emojiImage(part.url, part.name, 'st-emoji-image'), h('span', part.name)]) : h('p', part.text))]),
         h('details', [h('summary', '查看模板内容'), h('textarea', { class: 'st-source', rows: 4, value: ownValue, readonly: true, 'aria-label': '模板内容' })]),
       ])
     },

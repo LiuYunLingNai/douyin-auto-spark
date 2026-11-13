@@ -178,7 +178,7 @@ function registerMountedRoutes() {
   app.quiet.push(webState.prefix, '/favicon.ico', '/hybridaction/')
   app.use(webState.prefix, (req, res, next) => {
     const pathname = new URL(req.originalUrl, 'http://localhost').pathname
-    handleTemplateRequest(req, res, pathname, webState.prefix, getSession, readJsonBody)
+    handleTemplateRequest(req, res, pathname, webState.prefix, getSession, readJsonBody, resolveTemplateAccount)
       .then(handled => handled || handleAdminRequest(req, res, pathname, webState.prefix, createSetupLink, readJsonBody))
       .then((handled) => { if (!handled) next() }).catch(next)
   })
@@ -209,7 +209,7 @@ function startStandaloneServer() {
 
 async function handleStandaloneRequest(req, res) {
   const url = new URL(req.url || '/', 'http://localhost')
-  if (await handleTemplateRequest(req, res, url.pathname, webState.prefix, getSession, readJsonBody)) return
+  if (await handleTemplateRequest(req, res, url.pathname, webState.prefix, getSession, readJsonBody, resolveTemplateAccount)) return
   if (await handleAdminRequest(req, res, url.pathname, webState.prefix, createSetupLink, readJsonBody)) return
   const page = new RegExp(`^${webState.prefix}/setup/([a-f0-9]{64})$`).exec(url.pathname)
   const api = new RegExp(`^${webState.prefix}/api/setup/([a-f0-9]{64})$`).exec(url.pathname)
@@ -330,6 +330,18 @@ async function loadSessionList(token, session, body, cookies, res) {
   } finally {
     closeBot(placeholder.id)
   }
+}
+
+/** 表情选择器复用扫码或已保存的账号身份；使用独立短期连接。 */
+async function resolveTemplateAccount(session, body, token) {
+  const cookies = await resolveSubmittedCookies(session, body)
+  if (!cookies.length) throw new Error('请先扫码获取 Cookie，或粘贴 Cookie JSON')
+  const stored = session.accountId === undefined ? undefined : (await listAccounts(session.userId)).find(item => item.id === session.accountId)
+  const scan = scanSessions.get(token)
+  const header = toCookieHeader(cookies)
+  const fromScan = scan?.status === 'success' && header === toCookieHeader(scan.cookies)
+  const fromStored = !fromScan && stored && header === toCookieHeader(stored.cookies)
+  return { name: String(body.name || stored?.name || '当前账号'), cookies, douyinUid: fromScan ? scan.userId : fromStored ? stored.douyinUid : '', douyinDevice: fromScan ? scan.device : fromStored ? stored.douyinDevice : undefined }
 }
 
 /**

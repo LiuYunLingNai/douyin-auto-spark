@@ -3,6 +3,7 @@ import { getConfig, saveConfig } from './config.js'
 import { parseMessageTemplate } from './message-template.js'
 import { assertTemplateImages, MAX_TEMPLATE_IMAGE_BYTES, readTemplateImage, saveTemplateImage } from './template-images.js'
 import { renderDefaultTemplatePage } from './template-editor.js'
+import { readAccountTemplateEmojis, templateEmojiAccounts, withTemplateEmojiAccount } from './template-emojis.js'
 
 const sessions = new Map()
 
@@ -30,8 +31,8 @@ function send(res, status, value, type = 'application/json; charset=utf-8') {
   return true
 }
 
-export async function handleTemplateRequest(req, res, pathname, prefix, getSetupSession, readJsonBody) {
-  const route = new RegExp(`^${prefix}/(?:template/([a-f0-9]{64})|api/template/(upload|image|save)/([a-f0-9]{64})(?:/([a-f0-9]{64}\\.(?:png|jpg|gif|webp)))?)$`).exec(pathname)
+export async function handleTemplateRequest(req, res, pathname, prefix, getSetupSession, readJsonBody, resolveSetupAccount) {
+  const route = new RegExp(`^${prefix}/(?:template/([a-f0-9]{64})|api/template/(upload|image|save|emojis|accounts)/([a-f0-9]{64})(?:/([a-f0-9]{64}\\.(?:png|jpg|gif|webp)))?)$`).exec(pathname)
   if (!route) return false
   const [, pageToken, action, apiToken, id] = route
   const token = pageToken || apiToken
@@ -39,8 +40,20 @@ export async function handleTemplateRequest(req, res, pathname, prefix, getSetup
   const activeDefault = defaultSession?.expiresAt > Date.now() ? defaultSession : undefined
   const session = activeDefault || getSetupSession(token)
   if (!session || ((pageToken || action === 'save') && !activeDefault)) return send(res, 403, { ok: false, message: '模板编辑链接无效或已过期，请重新获取' })
-  if (req.method !== (pageToken || action === 'image' ? 'GET' : 'POST')) return send(res, 405, { ok: false, message: '请求方式不支持' })
+  if (req.method !== (pageToken || action === 'image' || action === 'accounts' ? 'GET' : 'POST')) return send(res, 405, { ok: false, message: '请求方式不支持' })
   try {
+    if (action === 'accounts' && !id) return send(res, 200, { ok: true, accounts: await templateEmojiAccounts(activeDefault ? undefined : session.userId) })
+    if (action === 'emojis' && !id) {
+      if (session.loadingEmojis) throw new Error('正在读取表情，请稍候')
+      if (session.submitting) throw new Error('正在保存配置，请稍后再读取表情')
+      session.loadingEmojis = true
+      try {
+        const body = req.body ?? await readJsonBody(req)
+        const page = activeDefault ? await readAccountTemplateEmojis(body.accountId, body) : await withTemplateEmojiAccount(await resolveSetupAccount(session, body, token), body)
+        if (session.expiresAt <= Date.now()) throw new Error('链接已过期，请重新获取')
+        return send(res, 200, { ok: true, ...page })
+      } finally { session.loadingEmojis = false }
+    }
     if (pageToken) return send(res, 200, renderDefaultTemplatePage(token, prefix, getConfig().message.template || ''), 'text/html; charset=utf-8')
     if (action === 'image' && id) {
       const image = await readTemplateImage(id)

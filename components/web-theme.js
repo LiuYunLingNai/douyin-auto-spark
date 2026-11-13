@@ -141,7 +141,7 @@ form > label,form > .scan,form > .picker{
   position:relative;padding-top:var(--sp-6);border-top:1px solid var(--rule-soft);
 }
 form > label:first-child{padding-top:0;border-top:0}
-form > label::before{
+form > label:not(.check)::before{
   counter-increment:sec;content:counter(sec,decimal-leading-zero);
   position:absolute;left:0;top:var(--sp-6);
   width:26px;height:26px;border:1px solid var(--ink);color:var(--accent);
@@ -198,7 +198,7 @@ form button[type=submit]{justify-self:start;padding:13px 34px;font-size:16px;mar
   .hero-title{font-size:28px}
   form{padding:0 var(--sp-4) var(--sp-6)}
   label{padding-left:0}
-  form>label::before{display:none}
+  form>label:not(.check)::before{display:none}
   #status{padding-left:0}
   form button[type=submit]{width:100%;justify-self:stretch;margin-left:0}
   .scan-actions button{flex:1}
